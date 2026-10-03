@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Music · VidGrab</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">▼</span> VidGrab</div>
+    <a class="nav-link" href="/index.html"><span class="ico">⬇</span> Download</a>
+    <a class="nav-link" href="/playlist.html"><span class="ico">☰</span> Playlist</a>
+    <a class="nav-link" href="/videos.html"><span class="ico">▶</span> Videos</a>
+    <a class="nav-link" href="/music.html"><span class="ico">♫</span> Music</a>
+    <a class="nav-link" href="/settings.html"><span class="ico">⚙</span> Settings</a>
+<div class="sidebar-foot" id="setup-status">checking setup…</div>
+</aside>
+
+  <main class="main main-dock">
+    <div class="page-head">
+      <h1>My music</h1>
+      <p>Every song you downloaded, plus anything you upload from your device. Plays with shuffle, speed and pitch control.</p>
+      <div class="small muted" id="stats"></div>
+    </div>
+
+    <!-- Three deliberate rows rather than one wrapping flex line: on a phone a
+         single row breaks into ragged, part-filled lines. -->
+    <div class="toolbar toolbar-music">
+      <div class="tb-search">
+        <span class="ico">⌕</span>
+        <input class="search" type="text" id="search" placeholder="Search songs…" autocomplete="off">
+      </div>
+      <div class="tb-row">
+        <select id="sort" aria-label="Sort songs">
+          <option value="new">Newest first</option>
+          <option value="old">Oldest first</option>
+          <option value="title">Title A–Z</option>
+          <option value="size">Largest</option>
+          <option value="recent">Recently played</option>
+        </select>
+        <button class="btn btn-icon" id="rescan" title="Rescan folder" aria-label="Rescan folder">⟳</button>
+        <button class="btn btn-icon" id="upload-btn" title="Upload songs from this device" aria-label="Upload songs from this device">⬆</button>
+      </div>
+      <div class="btn-block-2">
+        <button class="btn btn-primary" id="play-all">▶ Play all</button>
+        <button class="btn" id="shuffle-all">⤨ Shuffle all</button>
+      </div>
+      <input type="file" id="upload" accept="audio/*,.mp3,.m4a,.opus,.wav,.flac,.aac,.ogg" multiple hidden>
+    </div>
+
+    <div id="msg" class="msg"></div>
+    <div id="upload-bar" class="upload-bar" hidden>
+      <div class="progress"><span id="upload-fill" style="width:0%"></span></div>
+      <div class="small muted" id="upload-text"></div>
+    </div>
+
+    <div id="grid" class="song-list"></div>
+    <div id="empty" class="empty" hidden>
+      <div class="big">♫</div>
+      <div>No music yet. <a href="/playlist.html">Download a playlist</a> or upload songs from your device.</div>
+    </div>
+
+  <!-- The dock lives inside <main> so that client-side navigation swaps (and
+       tears down) it with the rest of the page. It is position:fixed, so it
+       still sits at the bottom of the window. Three rows on a phone: what is
+       playing, the seek bar, then the transport on its own line. -->
+  <div class="dock" id="dock" hidden>
+    <div class="dock-now">
+      <div class="dock-art" id="dock-art"></div>
+      <div class="dock-meta">
+        <div class="dock-title" id="dock-title">Nothing playing</div>
+        <div class="dock-sub" id="dock-sub"></div>
+      </div>
+      <button class="icon-btn dock-fx-btn" id="btn-fx" title="Speed, pitch and volume" aria-label="Speed, pitch and volume" aria-expanded="false">⚡</button>
+    </div>
+
+    <div class="dock-seek">
+      <span id="t-cur">0:00</span>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek">
+      <span id="t-dur">0:00</span>
+    </div>
+
+    <div class="dock-buttons">
+      <button class="icon-btn" id="btn-shuffle" title="Shuffle" aria-label="Shuffle">⤨</button>
+      <button class="icon-btn" id="btn-prev" title="Previous" aria-label="Previous">⏮</button>
+      <button class="btn play-btn" id="btn-play" title="Play / Pause" aria-label="Play or pause">▶</button>
+      <button class="icon-btn" id="btn-next" title="Next" aria-label="Next">⏭</button>
+      <button class="icon-btn" id="btn-repeat" title="Repeat" aria-label="Repeat">↻</button>
+    </div>
+  </div>
+
+  <!-- Speed, pitch and volume outgrew the dock, so they live here. The second
+       panel is the per-song overflow menu. Opening either pushes a history
+       entry, which is what makes the Android back button close the sheet. -->
+  <div class="sheet" id="sheet" hidden>
+    <div class="sheet-scrim" id="sheet-scrim"></div>
+
+    <div class="sheet-panel" id="panel-fx" role="dialog" aria-modal="true" aria-label="Now playing">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head">
+        <div class="sheet-art" id="sheet-art"></div>
+        <div class="sheet-meta">
+          <div class="sheet-title" id="sheet-title">Nothing playing</div>
+          <div class="sheet-sub" id="sheet-sub"></div>
+        </div>
+        <button class="icon-btn" id="fx-close" title="Close" aria-label="Close">✕</button>
+      </div>
+
+      <div class="dock-fx">
+        <label class="fx">
+          <span class="fx-label">Speed <b id="speed-val">1.00×</b></span>
+          <input type="range" id="speed" min="25" max="300" step="5" value="100" aria-label="Playback speed">
+        </label>
+        <label class="fx">
+          <span class="fx-label">Pitch <b id="pitch-val">0 st</b></span>
+          <input type="range" id="pitch" min="-12" max="12" step="1" value="0" aria-label="Pitch in semitones">
+          <span class="fx-hint" id="pitch-hint">speed only, pitch stays put</span>
+        </label>
+        <div class="fx-presets">
+          <button class="btn btn-sm" data-pitch="-12" title="-1 octave">−8va</button>
+          <button class="btn btn-sm" data-pitch="-7">♭</button>
+          <button class="btn btn-sm" data-speed="50">0.5×</button>
+          <button class="btn btn-sm" data-speed="100">1×</button>
+          <button class="btn btn-sm" data-speed="150">1.5×</button>
+          <button class="btn btn-sm" data-pitch="7">♯</button>
+          <button class="btn btn-sm" data-pitch="12" title="+1 octave">+8va</button>
+        </div>
+        <label class="fx">
+          <span class="fx-label">Volume</span>
+          <input type="range" id="volume" min="0" max="100" step="1" value="100" aria-label="Volume">
+        </label>
+        <div class="fx-foot">
+          <button class="btn btn-sm" id="btn-reset">Reset FX</button>
+          <span class="small muted grow" id="fx-saved">saved for this song</span>
+          <button class="btn btn-sm btn-primary" id="btn-download">Save file</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sheet-panel" id="panel-actions" hidden role="dialog" aria-modal="true" aria-label="Song actions">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head">
+        <div class="sheet-meta">
+          <div class="sheet-title" id="act-title"></div>
+          <div class="sheet-sub" id="act-sub"></div>
+        </div>
+        <button class="icon-btn" id="act-close" title="Close" aria-label="Close">✕</button>
+      </div>
+      <div class="sheet-actions" id="act-list"></div>
+    </div>
+  </div>
+  </main>
+</div>
+
+<script type="module" src="/js/app.js"></script>
+<script type="module" src="/js/music.js"></script>
+</body>
+</html>

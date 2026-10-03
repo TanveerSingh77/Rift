@@ -1,0 +1,19 @@
+{
+  "name": "vidgrab",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloud video downloader. Resolves links server-side and streams media straight to the device without storing anything.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "build:bin": "bash render-build.sh"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

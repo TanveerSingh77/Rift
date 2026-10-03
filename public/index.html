@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Download · VidGrab</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">▼</span> VidGrab</div>
+    <a class="nav-link" href="/index.html"><span class="ico">⬇</span> Download</a>
+    <a class="nav-link" href="/playlist.html"><span class="ico">☰</span> Playlist</a>
+    <a class="nav-link" href="/videos.html"><span class="ico">▶</span> Videos</a>
+    <a class="nav-link" href="/music.html"><span class="ico">♫</span> Music</a>
+    <a class="nav-link" href="/settings.html"><span class="ico">⚙</span> Settings</a>
+    <div class="sidebar-foot" id="setup-status">checking setup…</div>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <h1>Download a video</h1>
+      <p>Paste a YouTube link and grab it in high quality (up to 4K/2160p) with audio.</p>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <label class="field">
+          <span>YouTube link</span>
+          <div class="url-row">
+            <input type="url" id="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false">
+            <button class="btn" id="fetch">Fetch</button>
+          </div>
+        </label>
+
+        <div class="row-between" style="margin-bottom:6px">
+          <span class="small muted" style="font-weight:600">Or paste many links at once</span>
+          <span class="small muted">one per line · up to 100</span>
+        </div>
+        <textarea id="bulk" placeholder="https://www.youtube.com/watch?v=...&#10;https://youtu.be/..."></textarea>
+
+        <div id="msg" class="msg"></div>
+        <div id="preview"></div>
+
+        <div class="section-title">Quality</div>
+        <div class="chips" id="quality">
+          <div class="chip active" data-v="1080">Best (1080p)</div>
+          <div class="chip" data-v="720">720p</div>
+          <div class="chip" data-v="1440">1440p</div>
+          <div class="chip" data-v="2160">4K</div>
+        </div>
+
+        <div class="row-between" style="margin-top:22px;gap:12px">
+          <span class="small muted" id="quality-note">Video + audio merged into one MP4</span>
+          <button class="btn btn-primary" id="download" disabled>Download</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row-between">
+          <h3 style="margin:0;font-size:16px">Saved to your device</h3>
+        </div>
+        <p class="small muted" style="margin-top:8px">
+          Files go straight to your phone's Downloads folder. Nothing is kept on the
+          server, so there is no library to fill up.
+        </p>
+
+        <label class="field" style="display:block;margin-top:16px">
+          <span class="small" style="display:flex;gap:9px;align-items:flex-start;cursor:pointer">
+            <input type="checkbox" id="fastmode" style="margin-top:2px">
+            <span>
+              <strong>Data-saver mode</strong><br>
+              <span class="muted">Redirects to YouTube's CDN instead of streaming
+              through the server. Uses far less server bandwidth and is faster,
+              but caps quality at 720p and names the file less nicely.</span>
+            </span>
+          </span>
+        </label>
+
+        <div class="section-title" style="margin-top:20px">Recent</div>
+        <div id="recent"><div class="empty small">Nothing yet.</div></div>
+      </div>
+    </div>
+  </main>
+</div>
+<script type="module" src="/js/app.js"></script>
+<script type="module" src="/js/download.js"></script>
+</body>
+</html>

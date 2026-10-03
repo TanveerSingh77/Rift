@@ -1,0 +1,20 @@
+# Force LF in the repository and in the working tree.
+#
+# Without this, Git's autocrlf rewrites render-build.sh with CRLF on a Windows
+# checkout, and a CRLF shell script fails on Linux with a misleading error
+# ("/bin/bash^M: bad interpreter") that looks like a Render misconfiguration
+# rather than a line-ending problem.
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+
+# Never mangle binaries.
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.mp3 binary
+*.ico binary

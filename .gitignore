@@ -1,0 +1,38 @@
+# dependencies (this project is currently dependency-free, but keep this
+# so the day someone adds an npm package it never reaches git)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+package-lock.json.bak
+
+# platform binaries - never commit these
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# yt-dlp / ffmpeg state
+cookies.txt
+*.cookies.txt
+.ytdlp-cache/
+
+# runtime data + downloaded media.
+# On Render the filesystem is ephemeral, so these are wiped on every spin-down
+# and redeploy anyway. Never let a 700MB mp4 land in a git commit.
+downloads/
+data/*.tmp
+data/library.json
+
+# logs and local env
+*.log
+.env
+.env.*
+!.env.example
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

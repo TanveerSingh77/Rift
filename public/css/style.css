@@ -1,0 +1,806 @@
+:root {
+  --bg: #0b0d12;
+  --bg-soft: #12151d;
+  --panel: #161a24;
+  --panel-2: #1c2130;
+  --line: #262c3b;
+  --text: #e8ecf5;
+  --muted: #8d97ad;
+  --accent: #ff4b4b;
+  --accent-2: #ff8a3d;
+  --ok: #37d67a;
+  --warn: #ffc043;
+  --info: #4b9dff;
+  --radius: 14px;
+  --shadow: 0 10px 40px rgba(0, 0, 0, .45);
+  /* Height of the mobile bottom tab bar. Zero on desktop, where the
+     sidebar is a column. Only the mobile block gives it a real value. */
+  --tabbar: 0px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+body {
+  background-image:
+    radial-gradient(900px 500px at 12% -8%, rgba(255, 75, 75, .12), transparent 60%),
+    radial-gradient(800px 500px at 92% 0%, rgba(75, 157, 255, .10), transparent 55%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+a { color: var(--info); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.app { display: flex; min-height: 100vh; }
+
+/* ---------- sidebar ---------- */
+.sidebar {
+  width: 240px;
+  flex: 0 0 240px;
+  background: rgba(12, 15, 21, .85);
+  border-right: 1px solid var(--line);
+  padding: 22px 16px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  backdrop-filter: blur(8px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  margin-bottom: 18px;
+  padding: 0 6px;
+}
+
+.brand .logo {
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  display: grid; place-items: center;
+  font-size: 18px;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 500;
+  transition: background .15s, color .15s;
+}
+.nav-link:hover { background: var(--panel); color: var(--text); text-decoration: none; }
+.nav-link.active { background: linear-gradient(90deg, rgba(255,75,75,.18), rgba(255,75,75,.04)); color: #fff; box-shadow: inset 2px 0 0 var(--accent); }
+.nav-link .ico { width: 20px; text-align: center; font-size: 16px; }
+
+.sidebar-foot { margin-top: auto; font-size: 12px; color: var(--muted); padding: 10px 6px; border-top: 1px solid var(--line); }
+.sidebar-foot code { background: var(--panel); padding: 1px 5px; border-radius: 5px; }
+
+/* ---------- main ---------- */
+.main { flex: 1; padding: 30px 34px 70px; min-width: 0; }
+
+.page-head { margin-bottom: 24px; }
+.page-head h1 { margin: 0 0 4px; font-size: 25px; letter-spacing: .2px; }
+.page-head p { margin: 0; color: var(--muted); font-size: 14px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+@media (max-width: 980px) { .grid-2 { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; } .app { flex-direction: column; } }
+
+/* ---------- form ---------- */
+label.field { display: block; margin-bottom: 14px; }
+label.field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 500; }
+
+input[type="text"], input[type="number"], input[type="url"], textarea, select {
+  width: 100%;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color .15s, box-shadow .15s;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255, 75, 75, .15);
+}
+textarea { resize: vertical; min-height: 92px; font-size: 13.5px; }
+
+.url-row { display: flex; gap: 10px; }
+.url-row input { flex: 1; }
+
+/* ---------- buttons ---------- */
+.btn {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 11px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: filter .15s, transform .06s, background .15s;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) { filter: brightness(1.16); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: #fff; }
+.btn-ghost { background: transparent; }
+.btn-sm { padding: 7px 12px; font-size: 13px; border-radius: 8px; }
+.btn-danger { border-color: rgba(255,75,75,.5); color: #ff8b8b; }
+.btn-block { width: 100%; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  user-select: none;
+}
+.chip:hover { border-color: var(--muted); color: var(--text); }
+.chip.active { background: rgba(255,75,75,.15); border-color: var(--accent); color: #fff; }
+
+/* ---------- messages ---------- */
+.msg { padding: 11px 14px; border-radius: 10px; font-size: 13.5px; margin: 12px 0; display: none; }
+.msg.show { display: block; }
+.msg-error { background: rgba(255,75,75,.12); border: 1px solid rgba(255,75,75,.45); color: #ffb3b3; }
+.msg-ok { background: rgba(55,214,122,.1); border: 1px solid rgba(55,214,122,.4); color: #9df0bd; }
+.msg-info { background: rgba(75,157,255,.1); border: 1px solid rgba(75,157,255,.35); color: #b9d6ff; }
+.msg-warn { background: rgba(255,192,67,.1); border: 1px solid rgba(255,192,67,.4); color: #ffdd9a; }
+
+/* ---------- preview ---------- */
+.preview { display: flex; gap: 16px; margin-top: 16px; }
+.preview img { width: 190px; border-radius: 10px; aspect-ratio: 16/9; object-fit: cover; background: var(--bg-soft); flex: 0 0 auto; }
+.preview-body { min-width: 0; }
+.preview-body h3 { margin: 0 0 6px; font-size: 16px; }
+.meta { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 12px; }
+.badge {
+  display: inline-block; padding: 3px 9px; border-radius: 6px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .4px;
+}
+.badge-hd { background: rgba(255,75,75,.16); border-color: rgba(255,75,75,.5); color: #ffb0b0; }
+
+/* ---------- progress ---------- */
+.progress { height: 8px; background: var(--bg-soft); border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
+.progress > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .3s; }
+
+.job { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 15px; margin-top: 12px; }
+.job-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 9px; }
+.job-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-pct { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 14px; color: var(--accent-2); flex: 0 0 auto; }
+.job-sub { font-size: 12.5px; color: var(--muted); margin-top: 7px; display: flex; justify-content: space-between; gap: 10px; }
+
+.logs { margin-top: 10px; background: #0a0c11; border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 190px; overflow-y: auto; font-family: Consolas, "Courier New", monospace; font-size: 11.5px; color: var(--muted); white-space: pre-wrap; word-break: break-word; }
+.logs div { padding: 1px 0; }
+.logs div.err { color: #ff9d9d; }
+.logs div.ok { color: #8fe8b4; }
+
+/* ---------- library ---------- */
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+.toolbar .search { flex: 1; min-width: 200px; }
+
+.vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 18px; }
+
+.vcard {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform .14s, border-color .14s, box-shadow .14s;
+  display: flex;
+  flex-direction: column;
+}
+.vcard:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: var(--shadow); }
+.vcard .thumb-wrap { position: relative; aspect-ratio: 16/9; background: var(--bg-soft); }
+.vcard .thumb-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vcard .thumb-wrap .ph { width: 100%; height: 100%; display: grid; place-items: center; font-size: 30px; color: #39415a; }
+.dur {
+  position: absolute; right: 7px; bottom: 7px;
+  background: rgba(0,0,0,.85); color: #fff;
+  font-size: 11.5px; font-weight: 600; padding: 2px 6px; border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.resume-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.6); }
+.resume-bar > span { display: block; height: 100%; background: var(--accent-2); }
+.vcard .done-tick { position: absolute; left: 7px; top: 7px; background: rgba(55,214,122,.92); color: #06240f; font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 5px; }
+.vcard .body { padding: 11px 12px 13px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.vcard .t { font-size: 13.5px; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.vcard .s { font-size: 12px; color: var(--muted); }
+.vcard .row { display: flex; gap: 6px; align-items: center; margin-top: auto; padding-top: 6px; }
+.vcard .row .grow { flex: 1; font-size: 11.5px; color: var(--muted); }
+
+.tag-resume { color: var(--accent-2); font-weight: 600; }
+
+.icon-btn {
+  background: transparent; border: 1px solid var(--line); color: var(--muted);
+  width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  display: grid; place-items: center; flex: 0 0 auto;
+}
+.icon-btn:hover { color: var(--text); border-color: var(--muted); }
+.icon-btn.danger:hover { color: #ff8b8b; border-color: var(--accent); }
+
+/* ---------- playlist ---------- */
+.pl-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px; border: 1px solid transparent; }
+.pl-row:hover { background: var(--panel-2); }
+.pl-row.sel { background: rgba(255,75,75,.09); border-color: rgba(255,75,75,.35); }
+.pl-row img { width: 76px; border-radius: 6px; aspect-ratio: 16/9; object-fit: cover; background: var(--bg-soft); flex: 0 0 auto; }
+.pl-row .info { flex: 1; min-width: 0; }
+.pl-row .info .t { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-row .info .s { font-size: 12px; color: var(--muted); }
+input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; flex: 0 0 auto; }
+
+.sticky-bar {
+  position: sticky; bottom: 0; margin-top: 18px;
+  background: rgba(18,21,29,.96); border: 1px solid var(--line);
+  border-radius: 12px; padding: 13px 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  box-shadow: var(--shadow); backdrop-filter: blur(8px);
+}
+
+/* ---------- player ---------- */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(4,6,10,.9);
+  display: none; z-index: 60; padding: 26px; overflow-y: auto;
+  backdrop-filter: blur(4px);
+}
+.modal-bg.show { display: block; }
+.modal {
+  max-width: 1080px; margin: 0 auto; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+}
+.modal video, .modal audio { width: 100%; display: block; background: #000; max-height: 68vh; }
+.player-bar { display: flex; align-items: center; gap: 12px; padding: 13px 16px; flex-wrap: wrap; }
+.player-bar .grow { flex: 1; min-width: 180px; }
+.player-bar h3 { margin: 0 0 3px; font-size: 15px; }
+.resume-note { font-size: 12.5px; color: var(--accent-2); }
+
+.empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+.empty .big { font-size: 44px; margin-bottom: 12px; opacity: .5; }
+
+.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.table td { padding: 9px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.table td:last-child { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.spinner {
+  width: 15px; height: 15px; border: 2px solid var(--line);
+  border-top-color: var(--accent); border-radius: 50%;
+  display: inline-block; vertical-align: -2px;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 22px 0 10px; font-weight: 700; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.mono { font-family: Consolas, "Courier New", monospace; font-size: 12px; }
+.kbd { background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; font-size: 11.5px; }
+
+/* ---------- music toolbar ---------- */
+/* Three tidy rows instead of one wrapping flex line: search, then sort plus the
+   two icon actions, then the two big transport buttons. On a phone a single
+   wrapping row ends up as ragged part-filled lines, which is what made this
+   toolbar read as broken. */
+.toolbar-music { flex-direction: column; align-items: stretch; gap: 9px; }
+.toolbar-music .tb-search { position: relative; }
+.toolbar-music .tb-search .ico {
+  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); font-size: 14px; pointer-events: none;
+}
+.toolbar-music .tb-search input { padding-left: 36px; }
+.tb-row { display: flex; gap: 8px; align-items: center; }
+.tb-row .grow { flex: 1 1 0; min-width: 0; }
+.tb-row select { flex: 1 1 auto; min-width: 0; }
+.btn-icon { width: 46px; flex: 0 0 46px; padding: 0; display: grid; place-items: center; font-size: 17px; }
+.btn-block-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ---------- music list ---------- */
+.main-dock { padding-bottom: 190px; }
+
+.song-list { display: flex; flex-direction: column; gap: 8px; }
+
+.song {
+  display: flex; align-items: center; gap: 13px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 9px 13px 9px 9px;
+  cursor: pointer; transition: border-color .14s, background .14s, transform .12s;
+  position: relative;
+}
+.song:hover { border-color: var(--muted); background: var(--panel-2); }
+.song.playing { border-color: var(--accent); background: linear-gradient(90deg, rgba(255,75,75,.10), rgba(255,138,61,.04)); }
+
+/* A left accent bar marks the playing row without shifting the layout. */
+.song.playing::before {
+  content: ''; position: absolute; left: 0; top: 10px; bottom: 10px;
+  width: 3px; border-radius: 0 3px 3px 0; background: linear-gradient(var(--accent), var(--accent-2));
+}
+
+.song-art {
+  width: 52px; height: 52px; flex: 0 0 52px;
+  border-radius: 9px; overflow: hidden; position: relative;
+  background: var(--bg-soft); display: grid; place-items: center;
+}
+.song-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.song-art .ph { color: #39415a; font-size: 20px; }
+
+.song-eq { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; gap: 3px; background: rgba(6,8,12,.72); }
+.song-eq span { width: 4px; background: var(--accent-2); border-radius: 2px; animation: eq .85s ease-in-out infinite; }
+.song-eq span:nth-child(1) { height: 40%; animation-delay: -.2s; }
+.song-eq span:nth-child(2) { height: 85%; animation-delay: -.45s; }
+.song-eq span:nth-child(3) { height: 60%; }
+@keyframes eq { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+
+.song-info { flex: 1 1 auto; min-width: 0; }
+.song-info .t { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.song-info .s {
+  font-size: 12px; color: var(--muted); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.song-progress { height: 3px; background: var(--bg-soft); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.song-progress > span { display: block; height: 100%; background: var(--accent-2); }
+.song-actions { display: flex; gap: 6px; flex: 0 0 auto; align-items: center; }
+
+/* Per-row play toggle. Present on phones, where a bare row tap is too easy to
+   trigger while scrolling; hidden on desktop where hover already explains it. */
+.song-play { display: none; }
+
+/* ---------- persistent player ---------- */
+/* Two stacked rows: artwork and metadata with the effects button, then the
+   transport on the right; the seek bar spans underneath both. */
+.dock {
+  position: fixed; left: 240px; right: 0; bottom: 0; z-index: 70;
+  background: rgba(14,17,24,.97); border-top: 1px solid var(--line);
+  padding: 11px 20px 9px; box-shadow: 0 -14px 34px rgba(0,0,0,.5);
+  backdrop-filter: blur(10px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 20px; align-items: center;
+}
+.dock-now { grid-area: 1 / 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.dock-art { width: 48px; height: 48px; border-radius: 9px; overflow: hidden; background: var(--bg-soft); display: grid; place-items: center; flex: 0 0 auto; }
+.dock-art img { width: 100%; height: 100%; object-fit: cover; }
+.dock-art .ph { color: #39415a; font-size: 18px; }
+.dock-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dock-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dock-fx-btn { flex: 0 0 auto; }
+.dock-buttons { grid-area: 1 / 2; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.play-btn { width: 44px; height: 44px; border-radius: 50%; padding: 0; display: grid; place-items: center; font-size: 16px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: #fff; }
+.icon-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(255,75,75,.14); }
+
+.dock-seek { grid-area: 2 / 1 / 3 / 3; display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dock-seek input[type="range"] { flex: 1 1 auto; min-width: 0; }
+
+/* ---------- now playing / effects sheet ---------- */
+/* The speed, pitch and volume controls used to sit in the dock itself, where a
+   phone had no room for them. They now live in a sheet that slides up from the
+   bottom, which also carries the artwork and the per-song actions. */
+.sheet { position: fixed; inset: 0; z-index: 120; }
+.sheet[hidden] { display: none; }
+/* Stops the page behind the drawer from scrolling under the user's thumb. */
+body.sheet-open { overflow: hidden; }
+.sheet-scrim {
+  position: absolute; inset: 0;
+  background: rgba(4,6,10,.7);
+  backdrop-filter: blur(3px);
+  opacity: 0; transition: opacity .2s ease;
+}
+.sheet.show .sheet-scrim { opacity: 1; }
+
+.sheet-panel {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  width: min(430px, 100%); margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--line); border-bottom: 0;
+  border-radius: 18px 18px 0 0;
+  box-shadow: var(--shadow);
+  padding: 7px 18px calc(16px + env(safe-area-inset-bottom));
+  max-height: 88dvh; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  opacity: 0; transform: translateY(16px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+.sheet.show .sheet-panel { opacity: 1; transform: translateY(0); }
+.sheet-panel[hidden] { display: none; }
+
+.sheet-grip { width: 38px; height: 4px; border-radius: 999px; background: var(--line); margin: 3px auto 13px; }
+.sheet-head { display: flex; align-items: center; gap: 12px; margin-bottom: 15px; }
+.sheet-art { width: 54px; height: 54px; border-radius: 10px; overflow: hidden; background: var(--bg-soft); display: grid; place-items: center; flex: 0 0 auto; }
+.sheet-art img { width: 100%; height: 100%; object-fit: cover; }
+.sheet-art .ph { color: #39415a; font-size: 20px; }
+.sheet-meta { flex: 1 1 auto; min-width: 0; }
+.sheet-title { font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.dock-fx { display: flex; flex-direction: column; gap: 13px; }
+.fx { display: flex; flex-direction: column; gap: 2px; }
+.fx-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.fx-label b { color: var(--text); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; font-size: 12.5px; }
+.fx-hint { font-size: 10.5px; color: var(--muted); }
+.fx-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.fx-presets .btn { flex: 1 1 auto; min-width: 0; }
+.fx-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 13px; }
+.fx-foot .grow { flex: 1 1 120px; min-width: 0; }
+
+/* Per-song action list inside the sheet. */
+.sheet-actions { display: flex; flex-direction: column; gap: 8px; }
+.sheet-action {
+  display: flex; align-items: center; gap: 13px;
+  min-height: 50px; padding: 0 14px;
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: 11px; color: var(--text);
+  font: inherit; font-size: 14.5px; font-weight: 600;
+  text-align: left; cursor: pointer; width: 100%;
+}
+.sheet-action:active { background: var(--panel-2); }
+.sheet-action .ico { width: 22px; text-align: center; font-size: 16px; flex: 0 0 auto; }
+.sheet-action.danger { color: #ff8b8b; border-color: rgba(255,75,75,.4); }
+
+/* Desktop: the same sheet floats just above the dock instead of being a
+   full-width drawer. */
+@media (min-width: 761px) {
+  .sheet-panel { bottom: 112px; border-bottom: 1px solid var(--line); border-radius: 18px; }
+}
+
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; border-radius: 999px;
+  /* The groove is drawn by the track pseudo-elements so it can carry a filled
+     portion. --p is the fill percentage and each view keeps it in step with the
+     slider, which turns every slider into a readable meter. */
+  background: transparent; outline: none; padding: 0; border: 0;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-2) var(--p, 0%), var(--line) var(--p, 0%));
+}
+input[type="range"]::-moz-range-track {
+  height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-2) var(--p, 0%), var(--line) var(--p, 0%));
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%; margin-top: -5px;
+  background: var(--accent-2); cursor: pointer; border: 2px solid #10131a;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent-2); cursor: pointer; border: 2px solid #10131a;
+}
+
+.upload-bar { margin-bottom: 16px; }
+.upload-bar .small { margin-top: 6px; }
+
+.resume-badge {
+  position: absolute; left: 7px; bottom: 26px;
+  background: rgba(255,138,61,.94); color: #1a0d02;
+  font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 5px;
+}
+
+@media (max-width: 1180px) {
+  .main-dock { padding-bottom: 200px; }
+}
+@media (max-width: 980px) {
+  .dock { left: 0; }
+}
+
+/* ===================================================================
+   Mobile
+   The sidebar turns into a bottom tab bar, the dock gets a compact
+   phone layout that sits above the tabs, and every control grows to a
+   finger-sized target. Safe-area insets keep content clear of the
+   notch and the gesture bar.
+   =================================================================== */
+@media (max-width: 760px) {
+  :root {
+    --radius: 12px;
+    /* tab padding 4+4 plus the 50px tab target; safe area is added
+       separately by every consumer so notch height is not baked in. */
+    --tabbar: 58px;
+  }
+
+  html, body {
+    /* Stop mobile browsers from inflating text in landscape. */
+    -webkit-text-size-adjust: 100%;
+    /* Kill the grey flash on tap; the :active styles below are enough. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    /* dvh tracks the collapsing browser/toolbar chrome. */
+    min-height: 100vh;
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
+  }
+
+  /* Interactive chrome should not select text when tapped. */
+  .nav-link, .chip, .btn, .icon-btn, .play-btn, .song, .song-play, .song-more,
+  .sheet-action, .vcard, .pl-row, input[type="range"] {
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
+  .btn:active, .icon-btn:active, .chip:active { transform: scale(.97); }
+  .song:active { transform: scale(.995); }
+
+  /* ---------- bottom tab bar ---------- */
+  .app {
+    flex-direction: column;
+    min-height: 100dvh;
+    /* Leave room for the fixed tab bar so nothing hides behind it. */
+    padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom));
+  }
+
+  .sidebar {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 80;
+    width: auto;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0;
+    /* Pinned so the dock, which is positioned against --tabbar, cannot
+       overlap the bar by a couple of pixels from font metric drift. */
+    height: calc(var(--tabbar) + env(safe-area-inset-bottom));
+    padding: 4px 2px calc(4px + env(safe-area-inset-bottom));
+    border-right: 0;
+    border-top: 1px solid var(--line);
+    background: rgba(10, 13, 19, .94);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, .5);
+  }
+
+  /* The tab bar speaks for itself; drop the wordmark to buy width. */
+  .brand { display: none; }
+
+  .nav-link {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 100%;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    padding: 4px 2px;
+    border-radius: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-align: center;
+  }
+  .nav-link .ico { width: auto; font-size: 19px; line-height: 1; }
+  /* The desktop active state is a left edge bar; on tabs it is a pill. */
+  .nav-link.active {
+    box-shadow: none;
+    background: linear-gradient(180deg, rgba(255, 75, 75, .22), rgba(255, 138, 61, .08));
+    color: #fff;
+  }
+
+  /* ---------- status pill ---------- */
+  /* Moves out of the tab bar and floats under the status bar instead. */
+  .sidebar-foot {
+    display: block;
+    position: fixed;
+    top: calc(7px + env(safe-area-inset-top));
+    right: 8px;
+    z-index: 81;
+    max-width: 58vw;
+    margin: 0;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(10, 13, 19, .9);
+    font-size: 10.5px;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    backdrop-filter: blur(10px);
+  }
+  .sidebar-foot .sep { margin: 0 5px; opacity: .55; }
+  .sidebar-foot code { padding: 0 3px; font-size: 10px; }
+
+  /* Keep page content clear of the floating pill: the pill is about 26px tall
+   from the top inset, so content starts below it instead of underneath it. */
+  .main { padding: calc(38px + env(safe-area-inset-top)) 14px 34px; }
+  .page-head { margin-bottom: 18px; }
+  .page-head h1 { font-size: 21px; }
+  .page-head p { font-size: 13px; }
+
+  /* ---------- forms ---------- */
+  /* 16px stops Android and iOS zooming the viewport on focus. */
+  input[type="text"], input[type="number"], input[type="url"],
+  input[type="password"], textarea, select { font-size: 16px; padding: 13px 14px; }
+
+  label.field { margin-bottom: 16px; }
+
+  /* Stacked, full width: side by side squeezes both halves too far. */
+  .url-row { flex-direction: column; }
+  .url-row .btn { width: 100%; }
+
+  .card { padding: 16px; border-radius: var(--radius); }
+  .grid-2 { gap: 14px; }
+
+  .btn { min-height: 46px; padding: 12px 18px; font-size: 15px; }
+  .btn-sm { min-height: 44px; padding: 10px 14px; font-size: 13.5px; }
+  .icon-btn { width: 44px; height: 44px; font-size: 16px; }
+  /* Chips are divs, so they need an explicit height to be thumb sized. */
+  .chip {
+    min-height: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+
+  /* Bigger thumbs: a 14px dot is not grabbable with a thumb. The input box is
+     grown to a real touch target while the visible groove stays 6px. */
+  input[type="range"] { height: 28px; }
+  input[type="range"]::-webkit-slider-runnable-track { height: 6px; }
+  input[type="range"]::-moz-range-track { height: 6px; }
+  input[type="range"]::-webkit-slider-thumb {
+    width: 22px; height: 22px; margin-top: -8px; border-width: 3px;
+  }
+  input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-width: 3px; }
+
+  /* ---------- grids and lists ---------- */
+  /* Two across still leaves room for a legible title on a phone. */
+  .vgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+  .vcard .body { padding: 9px 10px 11px; gap: 5px; }
+  .vcard .t { font-size: 12.5px; }
+  .vcard .s { font-size: 11px; }
+  .vcard .row { gap: 5px; }
+  .vcard .row .grow { font-size: 10.5px; }
+
+  .toolbar { gap: 8px; margin-bottom: 14px; }
+  .toolbar .search { flex: 1 0 100%; min-width: 0; }
+
+  .preview { flex-direction: column; gap: 12px; }
+  .preview img { width: 100%; }
+
+  .pl-row { gap: 9px; padding: 8px; }
+  .pl-row img { width: 62px; }
+
+  .logs { max-height: 150px; font-size: 11px; }
+  .table { font-size: 13px; }
+  .table td { padding: 8px 4px; }
+  .empty { padding: 44px 16px; }
+  .empty .big { font-size: 36px; }
+
+  /* The sticky action bar must clear the tab bar. */
+  .sticky-bar {
+    bottom: calc(var(--tabbar) + env(safe-area-inset-bottom));
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  .sticky-bar .btn { width: 100%; }
+
+  /* ---------- modals go full screen ---------- */
+  .modal-bg { padding: 0; }
+  .modal { border-radius: 0; max-height: 100dvh; }
+  .modal video, .modal audio { max-height: 46dvh; }
+  .player-bar { flex-direction: column; align-items: stretch; }
+  .player-bar .grow { min-width: 0; }
+
+  /* ---------- toasts sit above the tabs ---------- */
+  #toast-host {
+    left: 12px !important;
+    right: 12px !important;
+    bottom: calc(var(--tabbar) + 16px + env(safe-area-inset-bottom)) !important;
+    max-width: none !important;
+  }
+
+  /* ---------- music rows ---------- */
+  /* Three stacked rows in the dock: artwork and metadata, the seek bar, then
+     the transport on its own full-width line. Squeezing five buttons beside
+     the title is what left the title unreadable and the buttons clipped. */
+  .song { gap: 10px; padding: 8px 8px 8px 10px; }
+  .song-art { width: 46px; height: 46px; flex: 0 0 46px; }
+  .song-info .t { font-size: 14px; }
+  .song-info .s { font-size: 11.5px; }
+  /* An explicit play target: a row tap while scrolling should not start audio. */
+  .song-play {
+    display: grid; place-items: center;
+    width: 48px; height: 48px; flex: 0 0 48px;
+    border-radius: 50%; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--text);
+    font-size: 16px; cursor: pointer;
+  }
+  .song-play:active { transform: scale(.94); }
+  /* Reveal and delete move into the overflow sheet. */
+  .song-actions .icon-btn:not(.song-more) { display: none; }
+  .song-more { width: 48px; height: 48px; font-size: 19px; }
+
+  /* ---------- dock ---------- */
+  .dock {
+    left: 0;
+    right: 0;
+    bottom: calc(var(--tabbar) + env(safe-area-inset-bottom));
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "now" "seek" "buttons";
+    gap: 5px 10px;
+    padding: 9px 12px 10px;
+    border-radius: 0;
+    box-shadow: 0 -12px 30px rgba(0, 0, 0, .55);
+  }
+  .dock-now { grid-area: now; gap: 10px; }
+  .dock-art { width: 46px; height: 46px; flex: 0 0 46px; }
+  .dock-title { font-size: 14px; }
+  .dock-sub { font-size: 11px; }
+  .dock-fx-btn { width: 44px; height: 44px; }
+  .dock-seek { grid-area: seek; font-size: 11px; gap: 8px; }
+  .dock-buttons { grid-area: buttons; justify-content: center; gap: 6px; }
+  .dock-buttons .icon-btn { width: 42px; height: 42px; }
+  .play-btn { width: 50px; height: 50px; font-size: 18px; }
+
+  /* Reserve room for the dock plus the tab bar underneath it. */
+  .main-dock { padding-bottom: 215px; }
+
+  /* ---------- sheet on a phone ---------- */
+  .sheet-panel { padding: 7px 16px calc(18px + env(safe-area-inset-bottom)); }
+  .sheet-art { width: 52px; height: 52px; }
+  .fx-label { font-size: 11px; }
+  .fx-presets .btn { font-size: 13.5px; }
+}
+
+/* Landscape phones: the tab bar and dock eat almost the whole screen, so the
+   dock drops to two rows and loses its artwork. */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 480px) {
+  :root { --tabbar: 44px; }
+  .nav-link { font-size: 9.5px; padding: 2px; gap: 2px; }
+  .nav-link .ico { font-size: 16px; }
+  .main-dock { padding-bottom: 140px; }
+  .dock { grid-template-areas: "now seek" "buttons buttons"; padding: 6px 10px; gap: 4px 10px; }
+  .dock-art { width: 36px; height: 36px; flex: 0 0 36px; }
+  .dock-buttons .icon-btn { width: 44px; height: 44px; }
+  .play-btn { width: 44px; height: 44px; font-size: 16px; }
+  .dock-fx-btn { width: 44px; height: 44px; }
+  .song-play { width: 44px; height: 44px; flex: 0 0 44px; }
+  .song-more { width: 44px; height: 44px; }
+}

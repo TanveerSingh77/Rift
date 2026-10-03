@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Music Playlist · VidGrab</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">▼</span> VidGrab</div>
+    <a class="nav-link" href="/index.html"><span class="ico">⬇</span> Download</a>
+    <a class="nav-link" href="/playlist.html"><span class="ico">☰</span> Playlist</a>
+    <a class="nav-link" href="/videos.html"><span class="ico">▶</span> Videos</a>
+    <a class="nav-link" href="/music.html"><span class="ico">♫</span> Music</a>
+    <a class="nav-link" href="/settings.html"><span class="ico">⚙</span> Settings</a>
+    <div class="sidebar-foot" id="setup-status">checking setup…</div>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <h1>Music playlist</h1>
+      <p>Paste a YouTube or YouTube Music playlist link, tick the songs you want, and download just those.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <label class="field" style="margin-bottom:10px">
+        <span>Playlist link</span>
+        <div class="url-row">
+          <input type="url" id="url" placeholder="https://www.youtube.com/playlist?list=... (or music.youtube.com/playlist?list=...)" autocomplete="off" spellcheck="false">
+          <button class="btn btn-primary" id="load">Load playlist</button>
+        </div>
+      </label>
+      <div id="msg" class="msg"></div>
+      <div id="recent"></div>
+    </div>
+
+    <div id="list" hidden>
+      <div class="row-between" style="margin-bottom:14px">
+        <div>
+          <h2 style="margin:0 0 2px;font-size:18px" id="pl-title"></h2>
+          <div class="small muted" id="pl-sub"></div>
+        </div>
+        <div class="row-between" style="gap:8px">
+          <button class="btn btn-sm" id="select-all">Select all</button>
+          <button class="btn btn-sm" id="select-none">Clear</button>
+          <button class="btn btn-sm" id="select-short">Under 5 min</button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:10px">
+        <div id="rows"></div>
+      </div>
+
+      <div class="sticky-bar">
+        <div>
+          <strong id="sel-count">0 songs selected</strong>
+          <div class="small muted" id="sel-size"></div>
+        </div>
+        <div class="chips" id="format">
+          <div class="chip active" data-f="audio">Music only (MP3)</div>
+          <div class="chip" data-f="video">Video too (MP4)</div>
+        </div>
+        <button class="btn btn-primary" id="start" disabled>Download selected</button>
+      </div>
+    </div>
+
+    <div id="jobs-wrap">
+      <div class="section-title">Download queue</div>
+      <div class="card">
+        <div class="row-between" style="margin-bottom:10px">
+          <span class="small muted">Songs in progress leave the queue when done and appear in <a href="/music.html">My Music</a>.</span>
+          <span class="small muted" id="job-count"></span>
+        </div>
+        <div id="jobs"><div class="empty small">Queue is empty.</div></div>
+      </div>
+    </div>
+  </main>
+</div>
+<script type="module" src="/js/app.js"></script>
+<script type="module" src="/js/playlist.js"></script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Settings · VidGrab</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">▼</span> VidGrab</div>
+    <a class="nav-link" href="/index.html"><span class="ico">⬇</span> Download</a>
+    <a class="nav-link" href="/playlist.html"><span class="ico">☰</span> Playlist</a>
+    <a class="nav-link" href="/videos.html"><span class="ico">▶</span> Videos</a>
+    <a class="nav-link" href="/music.html"><span class="ico">♫</span> Music</a>
+    <a class="nav-link" href="/settings.html"><span class="ico">⚙</span> Settings</a>
+<div class="sidebar-foot" id="setup-status">checking setup…</div>
+</aside>
+
+  <main class="main">
+    <div class="page-head">
+      <h1>Settings</h1>
+      <p>Quality, resume behaviour, and environment diagnostics.</p>
+    </div>
+
+    <div id="msg" class="msg"></div>
+
+    <div class="grid-2">
+      <div>
+        <div class="card">
+          <h3 style="margin-top:0;font-size:16px">Downloads</h3>
+          <label class="field">
+            <span>Maximum video quality</span>
+            <select id="maxHeight">
+              <option value="720">720p</option>
+              <option value="1080">1080p (recommended)</option>
+              <option value="1440">1440p</option>
+              <option value="2160">2160p / 4K</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Music file format</span>
+            <select id="audioFormat">
+              <option value="mp3">MP3 — plays everywhere, re-encoded</option>
+              <option value="m4a">M4A / AAC — smaller, usually copied as-is</option>
+              <option value="opus">Opus — best quality per MB</option>
+              <option value="flac">FLAC — lossless container, re-encoded</option>
+              <option value="wav">WAV — uncompressed, very large</option>
+            </select>
+            <small class="muted" id="format-note"></small>
+          </label>
+          <label class="field">
+            <span>Simultaneous downloads</span>
+            <select id="concurrentJobs">
+              <option value="1">1 (safest)</option>
+              <option value="2">2 (recommended)</option>
+              <option value="3">3</option>
+              <option value="4">4 (fastest, may get throttled)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>cookies.txt path <em class="muted">(optional)</em></span>
+            <input type="text" id="cookies" placeholder="C:\path\to\cookies.txt" spellcheck="false">
+            <small class="muted" id="cookies-note">Only needed for private or age-restricted videos. Must be a Netscape cookies.txt export.</small>
+          </label>
+        </div>
+
+        <div class="card" style="margin-top:20px">
+          <h3 style="margin-top:0;font-size:16px">Resume watching</h3>
+          <label class="field" style="display:flex;align-items:center;gap:10px">
+            <input type="checkbox" id="autoResume" style="width:17px;height:17px;accent-color:var(--accent)">
+            <span style="margin:0">Jump to where I stopped when I open a video</span>
+          </label>
+          <small class="muted" style="margin:-4px 0 12px">If this is off, videos still open with a “Resume” button instead of jumping.</small>
+          <label class="field">
+            <span>Ignore stops earlier than (%)</span>
+            <input type="number" id="resumeThresholdPct" min="1" max="50">
+            <small class="muted" id="resume-note"></small>
+          </label>
+          <label class="field">
+            <span>Mark as watched after this much (%)</span>
+            <input type="number" id="markCompletePct" min="50" max="100">
+            <small class="muted">Reaching this clears the saved position so the video stops appearing under “Continue watching”.</small>
+          </label>
+        </div>
+
+        <button class="btn btn-primary" id="save" style="margin-top:20px;width:100%">Save settings</button>
+      </div>
+
+      <div>
+        <div class="card">
+          <h3 style="margin-top:0;font-size:16px">Environment</h3>
+          <table class="table" id="diag"></table>
+          <div class="row-between" style="margin-top:14px">
+            <button class="btn btn-sm" id="refresh">Refresh</button>
+            <button class="btn btn-sm" id="update-ytdlp">Update yt-dlp</button>
+          </div>
+          <div id="update-out" class="logs" style="display:none"></div>
+        </div>
+
+        <div class="card" style="margin-top:20px">
+          <h3 style="margin-top:0;font-size:16px">Library</h3>
+          <table class="table" id="stats"></table>
+          <div class="row-between" style="margin-top:14px">
+            <button class="btn btn-sm" id="rescan">Rescan downloads folder</button>
+            <button class="btn btn-sm btn-danger" id="wipe">Delete everything…</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:20px">
+          <h3 style="margin-top:0;font-size:16px">Keyboard shortcuts</h3>
+          <div class="small muted">
+            <div style="margin-bottom:4px"><strong>My Music</strong></div>
+            <div><span class="kbd">Space</span> play / pause</div>
+            <div><span class="kbd">Shift</span> + <span class="kbd">&rarr;</span> / <span class="kbd">&larr;</span> next / previous song</div>
+            <div style="margin:12px 0 4px"><strong>My Videos</strong></div>
+            <div><span class="kbd">Esc</span> close the video player</div>
+          </div>
+          <h3 style="font-size:16px;margin-top:18px">Troubleshooting</h3>
+          <div class="small muted">
+            <p style="margin:6px 0"><strong>“Sign in to confirm” errors:</strong> export cookies.txt from your browser in the Netscape format. On a cloud host set <code class="kbd">VIDGRAB_COOKIES</code> to that file's path as a secret, then redeploy.</p>
+            <p style="margin:6px 0"><strong>Extractor missing or out of date:</strong> yt-dlp is installed by the build step, never committed. Redeploying the service pulls the newest build.</p>
+            <p style="margin:6px 0"><strong>Missing 1080p:</strong> the source video itself may not have 1080p. yt-dlp downloads the best available at or below your limit.</p>
+            <p style="margin:6px 0"><strong>Data-saver mode caps at 720p:</strong> it redirects to a file YouTube already serves with audio, and the highest of those is 720p. Turn it off for a merged 1080p or 4K MP4.</p>
+            <p style="margin:6px 0"><strong>No library is kept:</strong> nothing is stored on the server, so My Videos and My Music are always empty. Files land in your device's Downloads folder.</p>
+            <p style="margin:6px 0"><strong>FLAC is not higher quality:</strong> the source is already compressed, so FLAC and WAV only repackage it and take more space. Choose Opus or MP3 unless a player demands another format.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<script type="module" src="/js/app.js"></script>
+<script type="module" src="/js/settings.js"></script>
+</body>
+</html>

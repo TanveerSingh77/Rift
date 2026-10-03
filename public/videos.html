@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Videos · VidGrab</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="logo">▼</span> VidGrab</div>
+    <a class="nav-link" href="/index.html"><span class="ico">⬇</span> Download</a>
+    <a class="nav-link" href="/playlist.html"><span class="ico">☰</span> Playlist</a>
+    <a class="nav-link" href="/videos.html"><span class="ico">▶</span> Videos</a>
+    <a class="nav-link" href="/music.html"><span class="ico">♫</span> Music</a>
+    <a class="nav-link" href="/settings.html"><span class="ico">⚙</span> Settings</a>
+<div class="sidebar-foot" id="setup-status">checking setup…</div>
+</aside>
+
+  <main class="main">
+    <div class="page-head">
+      <h1>My videos</h1>
+      <p>Every video you downloaded. Each one remembers where you stopped, so click it to pick up exactly where you left off.</p>
+      <div class="small muted" id="stats"></div>
+    </div>
+
+    <div class="toolbar">
+      <input class="search" type="text" id="search" placeholder="Search videos…" autocomplete="off">
+      <div class="chips" id="filters">
+        <div class="chip active" data-f="all">All</div>
+        <div class="chip" data-f="progress">Continue watching</div>
+        <div class="chip" data-f="done">Finished</div>
+        <div class="chip" data-f="missing">Missing file</div>
+      </div>
+      <select id="sort" style="width:auto">
+        <option value="recent">Recently watched</option>
+        <option value="new">Newest first</option>
+        <option value="old">Oldest first</option>
+        <option value="title">Title A–Z</option>
+        <option value="size">Largest</option>
+      </select>
+      <button class="btn btn-sm" id="rescan">Rescan folder</button>
+      <button class="btn btn-sm btn-danger" id="clear-progress">Forget watch positions</button>
+    </div>
+
+    <div id="grid" class="vgrid"></div>
+    <div id="empty" class="empty" hidden>
+      <div class="big">▶</div>
+      <div>No videos here yet. <a href="/index.html">Download one</a>.</div>
+    </div>
+  <div class="modal-bg" id="player">
+  <div class="modal">
+    <div id="media-holder"></div>
+    <div class="player-bar">
+      <div class="grow">
+        <h3 id="p-title"></h3>
+        <div class="small muted" id="p-sub"></div>
+        <div class="resume-note" id="p-resume"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm" id="p-restart">Start over</button>
+        <button class="btn btn-sm" id="p-download">Save file</button>
+        <button class="btn btn-sm btn-danger" id="p-delete">Delete</button>
+        <button class="btn btn-sm" id="p-close">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+  </main>
+</div>
+
+<script type="module" src="/js/app.js"></script>
+<script type="module" src="/js/videos.js"></script>
+</body>
+</html>
