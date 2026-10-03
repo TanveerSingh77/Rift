@@ -27,6 +27,18 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 const PORT = Number(process.env.PORT) || 4321;
 const HOST = process.env.HOST || '0.0.0.0';
 
+// Ensure cookies from read-only secret mounts (Render) are available to yt-dlp.
+const COOKIES_SRC = (process.env.VIDGRAB_COOKIES || '').trim();
+const COOKIES_DST = '/tmp/youtube_cookies.txt';
+if (COOKIES_SRC) {
+  try {
+    // Copy synchronously on startup so all subsequent spawns use writable cookies.
+    fs.copyFileSync(COOKIES_SRC, COOKIES_DST);
+  } catch (err) {
+    console.warn('Failed to copy VIDGRAB_COOKIES to /tmp:', err.message);
+  }
+}
+
 // Opt-in shared secret. A Render URL is public, and without a token anyone who
 // finds it can spend this account's bandwidth. Unset locally so development
 // needs no configuration.
@@ -103,19 +115,17 @@ function baseArgs() {
   // cookies are the only reliable way through. Supplied as an env var pointing
   // at a Render secret file, never committed. Always pass if configured so the
   // deployed instance gets the bot-block bypass.
-  const cookiesEnv = (process.env.VIDGRAB_COOKIES || '').trim();
-  if (cookiesEnv) {
+  if (COOKIES_SRC) {
     try {
-      const writable = '/tmp/youtube_cookies.txt';
-      // Copy read-only secret to writable location so yt-dlp can read/write/lock as needed.
-      if (!fs.existsSync(writable)) {
-        fs.copyFileSync(cookiesEnv, writable);
+      if (fs.existsSync(COOKIES_DST)) {
+        args.push('--cookies', COOKIES_DST);
+      } else {
+        fs.copyFileSync(COOKIES_SRC, COOKIES_DST);
+        args.push('--cookies', COOKIES_DST);
       }
-      args.push('--cookies', writable);
     } catch (err) {
-      // Fall back to passing the original path; yt-dlp will report the error clearly.
-      args.push('--cookies', cookiesEnv);
-      console.warn('Failed to copy VIDGRAB_COOKIES to /tmp:', err.message);
+      console.warn('Failed to prepare VIDGRAB_COOKIES:', err.message);
+      args.push('--cookies', COOKIES_SRC);
     }
   }
   return args;
