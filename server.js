@@ -103,8 +103,12 @@ function baseArgs() {
   // cookies are the only reliable way through. Supplied as an env var pointing
   // at a Render secret file, never committed. Always pass if configured so the
   // deployed instance gets the bot-block bypass.
-  const cookies = (process.env.VIDGRAB_COOKIES || '').trim();
-  if (cookies) args.push('--cookies', cookies);
+  const cookiesEnv = (process.env.VIDGRAB_COOKIES || '').trim();
+  if (cookiesEnv) {
+    // Pass explicitly even if the file isn't visible via existsSync in some
+    // mounted secret setups. yt-dlp will surface a clear error if missing.
+    args.push('--cookies', cookiesEnv);
+  }
   return args;
 }
 
