@@ -105,9 +105,18 @@ function baseArgs() {
   // deployed instance gets the bot-block bypass.
   const cookiesEnv = (process.env.VIDGRAB_COOKIES || '').trim();
   if (cookiesEnv) {
-    // Pass explicitly even if the file isn't visible via existsSync in some
-    // mounted secret setups. yt-dlp will surface a clear error if missing.
-    args.push('--cookies', cookiesEnv);
+    try {
+      const writable = '/tmp/youtube_cookies.txt';
+      // Copy read-only secret to writable location so yt-dlp can read/write/lock as needed.
+      if (!fs.existsSync(writable)) {
+        fs.copyFileSync(cookiesEnv, writable);
+      }
+      args.push('--cookies', writable);
+    } catch (err) {
+      // Fall back to passing the original path; yt-dlp will report the error clearly.
+      args.push('--cookies', cookiesEnv);
+      console.warn('Failed to copy VIDGRAB_COOKIES to /tmp:', err.message);
+    }
   }
   return args;
 }
