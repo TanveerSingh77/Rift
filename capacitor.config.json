@@ -3,7 +3,7 @@
   "appName": "VidGrab",
   "webDir": "public",
   "server": {
-    "url": "https://YOUR-RENDER-URL.onrender.com",
+    "url": "https://rift-backend-puut.onrender.com",
     "cleartext": false
   },
   "android": {

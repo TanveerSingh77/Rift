@@ -101,9 +101,10 @@ function baseArgs() {
 
   // A datacentre IP is far more likely to be challenged than a home one, and
   // cookies are the only reliable way through. Supplied as an env var pointing
-  // at a Render secret file, never committed.
+  // at a Render secret file, never committed. Always pass if configured so the
+  // deployed instance gets the bot-block bypass.
   const cookies = (process.env.VIDGRAB_COOKIES || '').trim();
-  if (cookies && fs.existsSync(cookies)) args.push('--cookies', cookies);
+  if (cookies) args.push('--cookies', cookies);
   return args;
 }
 

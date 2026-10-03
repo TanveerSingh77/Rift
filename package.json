@@ -17,6 +17,9 @@
     "@capacitor/android": "^8.5.2",
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
+    "@capacitor/filesystem": "^8.1.4",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/share": "^8.0.3",
     "express": "^4.21.2"
   }
 }
