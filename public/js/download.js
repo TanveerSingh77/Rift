@@ -152,11 +152,24 @@ urlInput.addEventListener('input', () => {
  * real title. Handing the browser the raw cross-origin CDN URL instead would
  * navigate to the video and play it rather than save it.
  */
+const TOKEN_KEY = 'vidgrab_token';
+
+function accessToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
 function saveUrlFor(url) {
   const kind = 'video';
   const height = fastMode.checked ? Math.min(state.quality, 720) : state.quality;
   const route = fastMode.checked ? 'save' : 'download';
   const params = new URLSearchParams({ url, kind, height: String(height) });
+  // Only needed when the server runs with VIDGRAB_TOKEN set; harmless otherwise.
+  const token = accessToken();
+  if (token) params.set('token', token);
   return `/${route}?${params.toString()}`;
 }
 

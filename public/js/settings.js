@@ -11,6 +11,28 @@ let settings = {};
 // the larger of the two rather than quote the number on its own.
 const RESUME_FLOOR_SECONDS = 10;
 
+// Kept in localStorage rather than sent to the server: the token is a
+// per-browser credential for a self-hosted deployment, and the page already
+// has to carry it on every navigation-based download.
+const TOKEN_KEY = 'vidgrab_token';
+
+function readToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeToken(value) {
+  try {
+    if (value) localStorage.setItem(TOKEN_KEY, value);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* Private browsing can refuse storage; downloads then use no token. */
+  }
+}
+
 const FORMAT_NOTES = {
   mp3: 'Re-encoded to MP3. Plays on every device, but the sound is compressed again.',
   m4a: 'Copied straight from the source when it is already AAC, so there is no extra quality loss.',
@@ -25,6 +47,7 @@ async function load() {
   $('#audioFormat').value = settings.audioFormat;
   $('#concurrentJobs').value = String(settings.concurrentJobs);
   $('#cookies').value = settings.cookies || '';
+  $('#accessToken').value = readToken();
   $('#autoResume').checked = settings.autoResume !== false;
   $('#resumeThresholdPct').value = settings.resumeThresholdPct;
   $('#markCompletePct').value = settings.markCompletePct;
@@ -133,6 +156,7 @@ $('#save').addEventListener('click', async () => {
     return setMsg(msg, '“Mark as watched after this much” must be between 50 and 100.', 'error');
   }
   try {
+    writeToken($('#accessToken').value.trim());
     settings = await api.put('/api/settings', {
       maxHeight: Number($('#maxHeight').value),
       audioFormat: $('#audioFormat').value,
@@ -153,7 +177,7 @@ $('#save').addEventListener('click', async () => {
 
 // Leaving with unsaved edits is the fastest way to think a setting was saved
 // when it was not.
-for (const id of ['#maxHeight', '#audioFormat', '#concurrentJobs', '#cookies', '#autoResume', '#resumeThresholdPct', '#markCompletePct']) {
+for (const id of ['#maxHeight', '#audioFormat', '#concurrentJobs', '#cookies', '#accessToken', '#autoResume', '#resumeThresholdPct', '#markCompletePct']) {
   const node = $(id);
   node.addEventListener('input', () => { stale = true; });
   node.addEventListener('change', () => { stale = true; });

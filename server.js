@@ -33,8 +33,9 @@ const HOST = process.env.HOST || '0.0.0.0';
 const TOKEN = (process.env.VIDGRAB_TOKEN || '').trim();
 
 const MISSING_BIN =
-  'yt-dlp is not available on this server. Locally: npm run setup. '
-  + 'On a cloud host it is installed by the build command (see render-build.sh).';
+  'yt-dlp is not available on this server. It is installed by the build step '
+  + '(see render-build.sh); check that the build command ran and that the '
+  + 'deployment is using a Linux build.';
 
 // --------------------------------------------------------------- binaries
 
@@ -236,10 +237,25 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '256kb' }));
 
+/**
+ * Authorization for the two bandwidth-spending routes.
+ *
+ * Headers are checked first, which is what the JSON API uses. The query
+ * parameter is accepted too because the browser reaches these routes through a
+ * plain navigation (`location.href = /download?...`), and a navigation cannot
+ * set a custom header. Without this, setting VIDGRAB_TOKEN would make every
+ * download fail with a 401 while the rest of the app kept working, which reads
+ * as a broken toggle rather than a locked-down one.
+ *
+ * A token in a URL can end up in proxy logs, so headers are preferred wherever
+ * the caller controls the request.
+ */
 function authorized(req) {
   if (!TOKEN) return true;
   const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  const supplied = String(req.headers['x-vidgrab-token'] || '') || bearer;
+  const fromQuery = String((req.query && req.query.token) || '').trim();
+  const supplied =
+    String(req.headers['x-vidgrab-token'] || '').trim() || bearer || fromQuery;
   return supplied.length > 0 && supplied === TOKEN;
 }
 

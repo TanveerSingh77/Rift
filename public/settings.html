@@ -64,6 +64,11 @@
             <input type="text" id="cookies" placeholder="C:\path\to\cookies.txt" spellcheck="false">
             <small class="muted" id="cookies-note">Only needed for private or age-restricted videos. Must be a Netscape cookies.txt export.</small>
           </label>
+          <label class="field">
+            <span>Access token <em class="muted">(optional)</em></span>
+            <input type="password" id="accessToken" placeholder="Leave empty unless the server sets VIDGRAB_TOKEN" spellcheck="false" autocomplete="off">
+            <small class="muted" id="token-note">Stored only in this browser and sent with download requests. Leave empty for a server that does not require one.</small>
+          </label>
         </div>
 
         <div class="card" style="margin-top:20px">
