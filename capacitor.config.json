@@ -1,0 +1,14 @@
+{
+  "appId": "com.tanveer.vidgrab",
+  "appName": "VidGrab",
+  "webDir": "public",
+  "server": {
+    "url": "https://YOUR-RENDER-URL.onrender.com",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": false,
+    "webContentsDebuggingEnabled": false
+  }
+}
