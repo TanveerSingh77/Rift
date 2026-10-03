@@ -1,5 +1,6 @@
 import { api, $, $$, el, toast, fmtDuration, fmtBytes, fmtWhen, thumbUrl, markActiveNav } from './common.js';
 import { onCleanup } from './app.js';
+import * as localLib from './localLibrary.js';
 
 markActiveNav();
 
@@ -10,10 +11,15 @@ const emptyBox = $('#empty');
 const player = $('#player');
 
 async function load() {
-  const lib = await api.get('/api/library?kind=video');
-  state.items = lib.items;
-  const s = lib.stats;
-  $('#stats').innerHTML = `${state.items.length} video(s) · ${fmtBytes(s.bytes)}<br><span class="muted">${s.completed} finished</span>`;
+  const items = await localLib.load();
+  state.items = items.filter((i) => i.kind === 'video').map((i) => ({
+    ...i,
+    progress: i.progress || {},
+    exists: i.exists !== false,
+  }));
+  const bytes = state.items.reduce((s, it) => s + (it.size || 0), 0);
+  const completed = state.items.filter((it) => it.progress?.completed).length;
+  $('#stats').innerHTML = `${state.items.length} video(s) · ${fmtBytes(bytes)}<br><span class="muted">${completed} finished</span>`;
   render();
 }
 

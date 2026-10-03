@@ -1,6 +1,7 @@
 ﻿import { api, $, el, setMsg, toast, fmtDuration, fmtBytes, fmtWhen, thumbUrl, markActiveNav } from './common.js';
 import { onCleanup } from './app.js';
 import * as player from './player.js';
+import * as localLib from './localLibrary.js';
 
 markActiveNav();
 
@@ -29,17 +30,20 @@ const audio = player.getAudio();
 
 async function load() {
   try {
-    const lib = await api.get('/api/library?kind=audio');
-    state.items = lib.items.filter((i) => i.exists !== false);
+    const items = await localLib.load();
+    state.items = items
+      .filter((i) => i.kind === 'audio')
+      .map((i) => ({ ...i, progress: i.progress || {} }))
+      .filter((i) => i.exists !== false);
     player.setLibrary(state.items);
-    $('#stats').textContent = `${state.items.length} song${state.items.length === 1 ? '' : 's'}${DOT}${fmtBytes(lib.stats.bytes)}`;
-    // Hand the visible queue to the player so it can keep advancing tracks
-    // even after the user navigates to another page.
+    const bytes = state.items.reduce((s, it) => s + (it.size || 0), 0);
+    $('#stats').textContent = `${state.items.length} song${state.items.length === 1 ? '' : 's'}${DOT}${fmtBytes(bytes)}`;
     if (!player.getState().itemId) player.setQueue(visible().map((i) => i.id), 0);
     render();
   } catch (err) {
-    toast(err.message, 'error');
+    setMsg($('#msg'), err.message, 'error');
   }
+}
 }
 
 // ---------------------------------------------------------------- library
