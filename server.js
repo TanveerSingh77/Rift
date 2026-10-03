@@ -478,7 +478,7 @@ app.post('/api/probe', async (req, res) => {
       isLive: Boolean(data.is_live),
     });
   } catch (err) {
-    return res.status(422).json({ error: err.message });
+    return res.status(500).json({ error: err.message || 'Failed to fetch playlist' });
   }
 });
 

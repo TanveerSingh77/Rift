@@ -1,5 +1,6 @@
 import { api, $, el, setMsg, toast, fmtDuration, fmtBytes, fmtSpeed, fmtRemaining, markActiveNav, renderSetupStatus } from './common.js';
 import { onCleanup } from './app.js';
+import * as localLib from './localLibrary.js';
 
 markActiveNav();
 
@@ -123,25 +124,49 @@ $('#start').addEventListener('click', async () => {
   if (!entries.length) return;
   $('#start').disabled = true;
   try {
-    await api.post('/api/playlist-download', {
-      entries,
-      kind: state.kind,
-      playlistId: state.playlist.playlistId,
-      playlistTitle: state.playlist.title,
-    });
-    toast(`Started downloading ${entries.length} song(s)`, 'ok');
+    for (const entry of entries) {
+      try {
+        await localLib.upsert({
+          url: entry.url,
+          kind: state.kind || 'audio',
+          title: entry.title,
+          thumbnail: entry.thumbnail,
+          duration: entry.duration,
+        });
+      } catch (e) {
+        console.warn('local lib upsert failed', e);
+      }
+      try {
+        window.open(buildStreamUrl(entry.url, state.kind || 'audio'), '_blank');
+      } catch (e) {
+        console.warn('open failed', e);
+      }
+    }
+    toast(`Saving ${entries.length} track(s). Check your device Downloads/My Music.`, 'ok');
     state.selected.clear();
     renderRows();
-    startPolling();
   } catch (err) {
-    toast(err.message, 'error');
+    toast(err?.message || 'Failed to start downloads', 'error');
   } finally {
     $('#start').disabled = false;
   }
 });
 
-const isActive = (j) => j.status === 'running' || j.status === 'queued' || j.status === 'cancelling';
-const pendingItems = (job) => job.items.filter((i) => i.status !== 'done' && i.status !== 'error').length;
+const TOKEN_KEY = 'vidgrab_token';
+function accessToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function buildStreamUrl(url, kind) {
+  const params = new URLSearchParams({ url, kind });
+  const token = accessToken();
+  if (token) params.set('token', token);
+  return `/save?${params.toString()}`;
+}
 
 async function renderQueue() {
   const jobs = (await api.get('/api/jobs')).filter((j) => j.kind === 'audio');
