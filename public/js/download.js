@@ -1,4 +1,5 @@
 import { api, $, el, setMsg, toast, fmtDuration, markActiveNav, renderSetupStatus } from './common.js';
+import * as localLib from './localLibrary.js';
 
 markActiveNav();
 
@@ -167,10 +168,18 @@ function saveUrlFor(url) {
   const height = fastMode.checked ? Math.min(state.quality, 720) : state.quality;
   const route = fastMode.checked ? 'save' : 'download';
   const params = new URLSearchParams({ url, kind, height: String(height) });
-  // Only needed when the server runs with VIDGRAB_TOKEN set; harmless otherwise.
   const token = accessToken();
   if (token) params.set('token', token);
   return `/${route}?${params.toString()}`;
+}
+
+async function recordHistory(url, title) {
+  try {
+    const t = title && title.trim() ? title.trim() : url;
+    await localLib.upsert({ url, kind: 'video', title: t });
+  } catch (e) {
+    console.warn('local library upsert failed', e);
+  }
 }
 
 function remember(title, url) {
@@ -238,7 +247,9 @@ renderRecent();
  * opens each link directly and asks the user to come back.
  */
 function save(url, title) {
-  remember(title || state.info?.title || url, url);
+  const t = title || state.info?.title || url;
+  remember(t, url);
+  recordHistory(url, t);
   window.location.href = saveUrlFor(url);
 }
 
