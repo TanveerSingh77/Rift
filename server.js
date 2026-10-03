@@ -194,6 +194,13 @@ function sanitizeFilename(name, fallback = 'video') {
  *
  * One simulate-mode call serves both `/save` and `/download`, so the filename
  * is known before a single byte of response body is written.
+ *
+ * This deliberately probes with `directFormat`, not `streamFormat`. A merged
+ * selector (bv*+ba) has no single URL, so yt-dlp reports %(url)s as the literal
+ * string "NA" -- and it does so silently, with a zero exit code. Using it here
+ * would make /save redirect to "NA" and label /download output as .webm even
+ * though the real stream is muxed to MP4. The actual download still uses
+ * streamFormat, which can merge freely because nothing reads %(url)s from it.
  */
 async function resolveMeta(url, { kind = 'video', maxHeight = 1080 } = {}) {
   const { stdout } = await runYtdlp([
@@ -202,7 +209,7 @@ async function resolveMeta(url, { kind = 'video', maxHeight = 1080 } = {}) {
     '--no-playlist',
     '--no-warnings',
     '-f',
-    streamFormat(kind, maxHeight),
+    directFormat(kind, maxHeight),
     '--print',
     '%(url)s\t%(title)s\t%(ext)s',
     url,
