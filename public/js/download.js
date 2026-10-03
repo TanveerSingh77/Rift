@@ -102,7 +102,7 @@ async function fetchInfo() {
     state.info = null;
     preview.innerHTML = '';
     downloadBtn.disabled = false;
-    setMsg(msg, err.message, 'error');
+    setMsg(msg, err?.message || 'Could not fetch video details.', 'error');
   } finally {
     $('#fetch').disabled = false;
   }
