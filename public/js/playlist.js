@@ -1,10 +1,11 @@
-import { api, $, el, setMsg, toast, fmtDuration, fmtBytes, fmtSpeed, fmtRemaining, markActiveNav, renderSetupStatus } from './common.js';
+﻿import { api, $, el, setMsg, toast, fmtDuration, fmtBytes, fmtRemaining, markActiveNav, renderSetupStatus } from './common.js';
 import { onCleanup } from './app.js';
 import * as localLib from './localLibrary.js';
+import * as downloader from './downloader.js';
 
 markActiveNav();
 
-const state = { playlist: null, selected: new Set(), kind: 'audio', poll: null, stopped: false, seen: new Set() };
+const state = { playlist: null, selected: new Set(), kind: 'audio', stopped: false, libraryCount: 0 };
 const msg = $('#msg');
 
 (async () => {
@@ -23,14 +24,18 @@ const msg = $('#msg');
       }
       box.append(chips);
     }
-
-    // Used only for the "have it" badge next to each playlist entry.
-    const library = await api.get('/api/library?kind=audio');
-    const owned = Array.isArray(library?.items) ? library.items : [];
-    window.__ownedIds = new Set(owned.filter((i) => i.mediaId && i.exists !== false).map((i) => i.mediaId));
-    state.libraryCount = owned.filter((i) => i.exists !== false).length;
   } catch { /* ignore */ }
-  startPolling();
+
+  // The "have it" badge and the queue's downloaded count come from the local
+  // library, which is the only place a finished file is recorded. The server's
+  // /api/library is inert on this bridge and always answers with an empty list.
+  try {
+    const items = await localLib.load();
+    state.libraryCount = items.filter((i) => i.exists !== false).length;
+    window.__ownedIds = new Set(items.filter((i) => i.mediaId && i.exists !== false).map((i) => i.mediaId));
+  } catch { /* ignore */ }
+
+  renderQueue();
 })();
 
 $('#load').addEventListener('click', load);
@@ -43,7 +48,7 @@ async function load() {
     return;
   }
   $('#load').disabled = true;
-  setMsg(msg, 'Reading playlist… this can take a few seconds.', 'info');
+  setMsg(msg, 'Reading playlistâ€¦ this can take a few seconds.', 'info');
 try {
     const info = await api.post('/api/playlist', { url });
     const entries = Array.isArray(info.entries) ? info.entries : [];
@@ -91,7 +96,7 @@ function renderRows() {
         'div',
         { class: 'info' },
         el('div', { class: 't', title: entry.title }, entry.title),
-        el('div', { class: 's' }, [entry.uploader, entry.duration ? fmtDuration(entry.duration) : null].filter(Boolean).join(' · ') || 'unknown'),
+        el('div', { class: 's' }, [entry.uploader, entry.duration ? fmtDuration(entry.duration) : null].filter(Boolean).join(' Â· ') || 'unknown'),
       ),
       owned.has(entry.id) ? el('span', { class: 'badge' }, 'have it') : null,
     );
@@ -128,51 +133,24 @@ $('#format').addEventListener('click', (e) => {
 });
 
 /**
- * Start a download for every ticked track.
+ * Download every ticked track, one at a time.
  *
- * Each transfer is handed to a hidden iframe rather than window.open. A popup
- * is blocked once the click gesture has been consumed, which would have left
- * every track after the first one unsaved, and it navigates the user away from
- * the list. An iframe fires the same same-origin request and the browser still
- * honours the Content-Disposition header, so the file lands in the device's
- * Downloads folder under its real title while this page stays put.
- *
- * Nothing is written to the server: /download pipes the media straight through.
+ * Sequential on purpose: a phone asked to hold three transfers at once drops
+ * two of them, and a playlist is dozens of tracks. Each one is fetched through
+ * downloader.js so progress is real and visible, written to the device by
+ * store.js, and only then added to the library.
  */
-const TRACK_GAP_MS = 350;
-
-/** A track row rendered off-screen, so the browser treats it as a download. */
-function triggerDownload(url) {
-  const frame = el('iframe', { src: url, 'aria-hidden': 'true', style: 'position:absolute;width:0;height:0;border:0;visibility:hidden' });
-  document.body.append(frame);
-  setTimeout(() => frame.remove(), 120000);
-}
-
-/**
- * The library record for a track.
- *
- * `id` is derived from the YouTube id so saving the same song twice updates the
- * existing row instead of adding a duplicate. `mediaId` is what the Music and
- * Videos grids read to draw artwork.
- */
-function libraryEntry(entry, kind) {
-  return {
-    id: `yt_${entry.id}`,
-    url: entry.url,
-    kind,
-    title: entry.title,
-    thumbnail: entry.thumbnail,
-    duration: entry.duration,
-    uploader: entry.uploader,
-    mediaId: entry.id,
-    sourceUrl: entry.url,
-    exists: true,
-  };
-}
+const state2 = { queue: [], running: false, cancelled: false };
 
 $('#start').addEventListener('click', async () => {
+  if (state2.running) {
+    state2.cancelled = true;
+    downloader.cancel();
+    return;
+  }
   if (!state.playlist) return;
   const kind = state.kind === 'video' ? 'video' : 'audio';
+
   // `url` is required: without it the request would be built as url=undefined
   // and rejected by the server.
   const entries = state.playlist.entries.filter((e) => state.selected.has(e.id) && e.url);
@@ -183,161 +161,185 @@ $('#start').addEventListener('click', async () => {
 
   const button = $('#start');
   const label = kind === 'audio' ? 'song' : 'video';
-  button.disabled = true;
-  setMsg(msg, `Sending ${entries.length} ${label}${entries.length === 1 ? '' : 's'} to this device\u2026`, 'info');
+  state2.running = true;
+  state2.cancelled = false;
+  state2.queue = entries.map((e) => ({
+    entry: e,
+    kind,
+    loaded: 0,
+    total: 0,
+    percent: 0,
+    phase: 'queued',
+    startedAt: 0,
+  }));
 
-  let registered = 0;
-  for (const entry of entries) {
-    if (state.stopped) break;
-    // Registered first so the track appears in My Music / My Videos straight
-    // away, whichever way the transfer itself goes.
+  button.textContent = 'Stop';
+  button.classList.add('btn-danger');
+  setMsg(msg, `Downloading 0 of ${entries.length} ${label}${entries.length === 1 ? '' : 's'} to this device\u2026`, 'info');
+  renderQueue();
+
+  let done = 0;
+  let failed = 0;
+  const firstError = [];
+
+  for (const task of state2.queue) {
+    if (state2.cancelled) break;
+    task.phase = 'connecting';
+    task.startedAt = Date.now();
+    renderQueue();
     try {
-      await localLib.upsert(libraryEntry(entry, kind));
-      registered += 1;
-      if (window.__ownedIds) window.__ownedIds.add(entry.id);
-    } catch (e) {
-      console.warn('local lib upsert failed', e);
+      const { item } = await downloader.fetchAndSave(libraryEntry(task.entry, kind), {
+        onProgress: (p) => {
+          task.loaded = p.loaded;
+          task.total = p.total;
+          task.percent = p.percent;
+          task.phase = p.phase;
+          renderQueue();
+          if (done) {
+            setMsg(msg, `Downloading ${done + 1} of ${entries.length} ${label}${entries.length === 1 ? '' : 's'} to this device\u2026`, 'info');
+          }
+        },
+      });
+      // The row lands in the library only now, when the file is real.
+      await localLib.upsert(item);
+      if (window.__ownedIds) window.__ownedIds.add(task.entry.id);
+      done += 1;
+      task.phase = 'done';
+      task.percent = 100;
+    } catch (err) {
+      if (state2.cancelled) {
+        task.phase = 'cancelled';
+        break;
+      }
+      task.phase = 'failed';
+      task.error = err?.message || 'Failed';
+      firstError.push(`${task.entry.title}: ${task.error}`);
+      failed += 1;
+      console.warn('[playlist] track failed', task.entry.url, err);
     }
-    triggerDownload(buildStreamUrl(entry, kind));
-    await new Promise((resolve) => setTimeout(resolve, TRACK_GAP_MS));
+    renderQueue();
   }
 
-  if (state.stopped) return;
+  state2.running = false;
+  button.textContent = 'Start';
+  button.classList.remove('btn-danger');
+  renderQueue();
+
+  if (state2.cancelled) {
+    setMsg(msg, `Stopped. ${done} of ${entries.length} finished and are in ${kind === 'audio' ? 'My Music' : 'My Videos'}.`, 'warn');
+    return;
+  }
+
   const where = kind === 'audio' ? 'My Music' : 'My Videos';
-  button.disabled = false;
+  if (!done) {
+    setMsg(msg, firstError[0] || 'Nothing could be downloaded.', 'error');
+    toast(firstError[0] || 'Download failed.', 'error');
+    return;
+  }
+
   state.selected.clear();
   renderRows();
-  setMsg(msg, `Sent ${registered} of ${entries.length} ${label}${entries.length === 1 ? '' : 's'} to your device. They are listed in ${where} now.`, 'ok');
-  toast(`Saved to this device \u00b7 check ${where}`, 'ok');
+  if (failed) {
+    setMsg(msg, `Saved ${done} of ${entries.length} to ${where}. ${failed} failed: ${firstError[0]}`, 'warn');
+    toast(`Saved ${done}, ${failed} failed`, 'warn', 8000);
+  } else {
+    setMsg(msg, `Saved ${done} ${label}${done === 1 ? '' : 's'} to your device. They are in ${where} and ready to play.`, 'ok');
+    toast(`Saved to this device \u00b7 check ${where}`, 'ok');
+  }
 });
 
-const TOKEN_KEY = 'vidgrab_token';
-function accessToken() {
-  try {
-    return localStorage.getItem(TOKEN_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
 /**
- * The URL one track is saved from.
+ * The queue panel.
  *
- * /download rather than /save: it is same-origin, so the response carries
- * Content-Disposition and the file is written under its real title with the
- * right extension. A redirect cannot set that header, and for music it would
- * hand back whatever container YouTube chose (an .m4a) instead of the mp3 the
- * Music page expects.
+ * This used to poll /api/jobs, which is a stateless bridge and always answered
+ * with an empty list, so the panel sat on "Queue is empty" through an entire
+ * playlist download and the progress bar never meant anything. The queue is
+ * local state now, because the queue is local: the page owns the transfer, so
+ * the page is the only thing that can honestly report how far along it is.
  */
-function buildStreamUrl(entry, kind) {
-  const params = new URLSearchParams({ url: entry.url, kind });
-  if (kind === 'audio') params.set('audioFormat', 'mp3');
-  const token = accessToken();
-  if (token) params.set('token', token);
-  return `/download?${params.toString()}`;
-}
+const PHASE_LABEL = {
+  queued: 'waiting',
+  connecting: 'contacting YouTube',
+  downloading: 'downloading',
+  saving: 'saving to this device',
+  done: 'saved',
+  failed: 'failed',
+  cancelled: 'stopped',
+};
 
-async function renderQueue() {
-  const jobs = (await api.get('/api/jobs')).filter((j) => j.kind === 'audio');
-  // Only the live queue; finished jobs are gone from this list.
-  const active = jobs.filter(isActive);
-  const pending = active.reduce((sum, j) => sum + pendingItems(j), 0);
-  const downloaded = state.libraryCount || 0;
+function renderQueue() {
+  const queue = state2.queue;
+  const box = $('#jobs');
+  if (!box) return;
+  box.innerHTML = '';
+
+  const done = queue.filter((t) => t.phase === 'done').length;
+  const failed = queue.filter((t) => t.phase === 'failed').length;
+  const left = queue.length - done - failed;
+  const downloaded = (state.libraryCount || 0) + done;
 
   const countBox = $('#job-count');
   if (countBox) {
-    countBox.innerHTML = active.length
-      ? `<span style="color:var(--ok)">${downloaded} downloaded</span> · <span style="color:var(--accent-2)">${pending} left</span>`
-      : `<span style="color:var(--ok)">${downloaded} downloaded</span> · <span class="muted">queue empty</span>`;
+    countBox.innerHTML = queue.length
+      ? `<span style="color:var(--ok)">${downloaded} downloaded</span> \u00b7 `
+        + `<span style="color:var(--accent-2)">${Math.max(0, left)} left</span>`
+        + (failed ? ` \u00b7 <span style="color:var(--warn)">${failed} failed</span>` : '')
+      : `<span style="color:var(--ok)">${downloaded} downloaded</span> \u00b7 <span class="muted">queue empty</span>`;
   }
 
-  const box = $('#jobs');
-  box.innerHTML = '';
-  if (!active.length) {
+  if (!queue.length) {
     box.append(el('div', { class: 'empty small' }, 'Queue is empty. Downloaded songs are in My Music.'));
-  } else {
-    for (const job of active.slice(0, 6)) {
-      const pct = Math.round(job.overallPercent);
-      const cur = job.items.find((i) => i.status === 'running') || job.items[job.index] || job.items[job.items.length - 1];
-      const left = pendingItems(job);
+    return;
+  }
 
-      const bits = [];
-      if (cur && cur.total > 0) bits.push(`${fmtBytes(cur.bytes)} / ${fmtBytes(cur.total)}`);
-      if (cur && cur.speed > 0) bits.push(fmtSpeed(cur.speed));
-      if (cur && cur.eta > 0 && cur.phase === 'downloading') bits.push(`${fmtRemaining(cur.eta)} left`);
+  // The active track first, then the next few waiting, then whatever finished.
+  const ordered = [...queue].sort((a, b) => rank(a) - rank(b));
+  for (const task of ordered.slice(0, 8)) {
+    const pct = task.phase === 'done' ? 100 : Math.round(task.percent || 0);
+    const bits = [];
+    if (task.total > 0) bits.push(`${fmtBytes(task.loaded)} / ${fmtBytes(task.total)}`);
+    if (task.phase === 'downloading' && task.loaded > 0) {
+      const left2 = (task.total - task.loaded) / Math.max(1, task.loaded / ((Date.now() - task.startedAt) / 1000 || 1));
+      if (Number.isFinite(left2) && left2 > 0 && left2 < 86400) bits.push(fmtRemaining(left2));
+    }
+    if (task.phase === 'failed' && task.error) bits.push(task.error);
 
-      const label = job.status === 'cancelling'
-        ? 'cancelling…'
-        : job.status === 'queued'
-          ? 'queued'
-          : job.items.length > 1
-            ? `song ${Math.min(job.index + 1, job.items.length)} of ${job.items.length}`
-            : cur?.phase === 'converting'
-              ? 'converting'
-              : cur?.phase === 'finishing'
-                ? 'finishing up'
-                : 'downloading';
-
-      box.append(
+    box.append(
+      el(
+        'div',
+        { class: 'job' },
         el(
           'div',
-          { class: 'job' },
+          { class: 'job-top' },
+          el('div', { class: 'job-title', title: task.entry.title }, task.entry.title),
           el(
             'div',
-            { class: 'job-top' },
-            el('div', { class: 'job-title', title: job.title }, job.title),
-            el('div', { class: 'job-pct', style: 'color:var(--accent-2)' }, `${pct}%`),
-          ),
-          el('div', { class: 'progress' }, el('span', { style: `width:${pct}%` })),
-          el(
-            'div',
-            { class: 'job-sub' },
-            el('span', {}, [`${label} · ${left} of ${job.items.length} left`, bits.length ? ` · ${bits.join(' · ')}` : ''].join('')),
-            job.status === 'running' || job.status === 'queued'
-              ? el('button', { class: 'btn btn-sm btn-danger', onclick: () => api.del(`/api/jobs/${job.id}`).then(renderQueue).catch(() => {}) }, 'Cancel')
-              : null,
+            { class: 'job-pct', style: `color:${task.phase === 'failed' ? 'var(--warn)' : 'var(--accent-2)'}` },
+            `${pct}%`,
           ),
         ),
-      );
-    }
+        el('div', { class: 'progress' }, el('span', { style: `width:${pct}%` })),
+        el('div', { class: 'job-sub' }, el('span', {}, [PHASE_LABEL[task.phase] || task.phase, bits.length ? ` \u00b7 ${bits.join(' \u00b7 ')}` : ''].join(''))),
+      ),
+    );
   }
-
-  // Announce completions even though they are no longer listed.
-  for (const job of jobs) {
-    if (job.status === 'done' && job.completed && !state.seen.has(job.id)) {
-      state.seen.add(job.id);
-      toast(`${job.completed} song(s) saved to My Music`, 'ok');
-      // Refresh the "downloaded" count now that the queue shrank.
-      const library = await api.get('/api/library?kind=audio').catch(() => null);
-      if (library) state.libraryCount = library.items.filter((i) => i.exists !== false).length;
-    }
+  if (queue.length > 8) {
+    box.append(el('div', { class: 'small muted', style: 'padding:8px 4px' }, `+ ${queue.length - 8} more`));
   }
-
-  return active.length > 0;
 }
 
-// Fast cadence while songs are downloading, relaxed when the queue is empty.
-function startPolling() {
-  if (state.poll || state.stopped) return;
-  const loop = async () => {
-    // The page may have been swapped out while this request was in flight.
-    if (state.stopped) return;
-    let busy = false;
-    try {
-      busy = await renderQueue();
-    } catch {
-      busy = true;
-    }
-    if (state.stopped) return;
-    state.poll = setTimeout(loop, busy ? 700 : 4000);
-  };
-  loop();
+/** Active first, then waiting, then finished and failed. */
+function rank(task) {
+  if (task.phase === 'downloading' || task.phase === 'connecting' || task.phase === 'saving') return 0;
+  if (task.phase === 'queued') return 1;
+  if (task.phase === 'failed') return 2;
+  return 3;
 }
-
-startPolling();
 
 onCleanup(() => {
   state.stopped = true;
-  clearTimeout(state.poll);
-  state.poll = null;
+  if (state2.running) {
+    state2.cancelled = true;
+    downloader.cancel();
+  }
 });

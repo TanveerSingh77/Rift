@@ -1,4 +1,5 @@
 import { thumbUrl } from './common.js';
+import * as store from './store.js';
 
 /**
  * The player lives on `window`, not inside a page module, because clicking
@@ -254,7 +255,27 @@ export async function playId(id, { offset } = {}) {
       ? item.progress.position
       : 0;
 
-  audio.src = `/media/${encodeURI(item.file)}`;
+  // The file has to be located before src is set. store.playableUrl returns the
+  // bytes already on the device, and falls back to streaming the original link
+  // when they are gone, so a cleared cache degrades to "plays over the network"
+  // instead of "That file could not be played."
+  let src = null;
+  try {
+    src = await store.playableUrl(item);
+  } catch (err) {
+    console.warn('[player] could not open track', err);
+  }
+  // The user may have picked something else while this was resolving.
+  if (state.itemId !== id) return;
+
+  if (!src) {
+    state.loading = false;
+    emit();
+    toast('That file could not be played. Try downloading it again.', 'error');
+    return;
+  }
+
+  audio.src = src;
   // load() resets playbackRate, so it has to be re-applied afterwards.
   audio.load();
   applyRatioSafely();
@@ -421,7 +442,13 @@ audio.addEventListener('ended', () => {
   advance(1);
 });
 audio.addEventListener('error', () => {
-  if (audio.src) toast('That file could not be played.', 'error');
+  if (!audio.src) return;
+  const item = currentItem();
+  // Name the actual cause. "That file could not be played." on its own sent
+  // people looking for a missing file that was never the problem.
+  toast(item?.ref
+    ? `Could not open "${item.title}" from this device. Try downloading it again.`
+    : 'That file could not be played. Download it again first.', 'error');
 });
 
 const notify = () => { saveProgress(false); updateMediaSession(); };

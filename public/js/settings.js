@@ -1,5 +1,7 @@
 import { api, $, el, setMsg, toast, fmtBytes, markActiveNav } from './common.js';
 import { onCleanup } from './app.js';
+import * as localLib from './localLibrary.js';
+import * as store from './store.js';
 
 markActiveNav();
 
@@ -54,9 +56,11 @@ async function load() {
 
   explainFormat();
   explainResume();
-  showCookiesStatus(settings.cookiesProblem);
 
   const health = await api.get('/api/health');
+  // Cookie state is reported by /api/health, not /api/settings: it describes the
+  // server's environment, which is the only place it is knowable.
+  showCookiesStatus(health.setup?.cookies ? null : health.setup?.cookiesProblem);
   renderDiag(health);
   renderStats(health.stats);
 }
@@ -86,7 +90,10 @@ function showCookiesStatus(problem) {
   const note = $('#cookies-note');
   const has = Boolean($('#cookies').value.trim());
   if (!has) {
-    note.textContent = 'Only needed for private or age-restricted videos. Must be a Netscape cookies.txt export.';
+    // Cookies are now the fallback, not the mechanism: the server gets through
+    // the bot check by impersonating other YouTube apps and only reaches for
+    // cookies if every one of them is refused.
+    note.textContent = 'Not normally needed. The server tries several YouTube players first; cookies are the fallback for links that still refuse. Must be a Netscape cookies.txt export.';
     note.style.color = '';
     return;
   }
@@ -98,19 +105,25 @@ function renderDiag(health) {
   const s = health.setup;
   const rows = [
     ['yt-dlp', s.ytdlp.found
-      ? el('span', { style: 'color:var(--ok)' }, s.ytdlpVersion ? `installed \u2014 ${s.ytdlpVersion}` : 'installed')
-      : el('span', { style: 'color:var(--warn)' }, 'missing \u2014 redeploy to run the build step')],
+      ? el('span', { style: 'color:var(--ok)' }, s.ytdlpVersion ? `installed — ${s.ytdlpVersion}` : 'installed')
+      : el('span', { style: 'color:var(--warn)' }, 'missing — redeploy to run the build step')],
     ['ffmpeg', s.ffmpeg?.found
-      ? el('span', { style: 'color:var(--ok)' }, 'installed \u2014 video+audio merge available')
-      : el('span', { style: 'color:var(--warn)' }, 'missing \u2014 720p single-file downloads only')],
-    ['JS runtime', s.runtime ? el('span', { style: 'color:var(--ok)' }, `${s.runtime.name}`) : el('span', { style: 'color:var(--warn)' }, 'none \u2014 Node 20+ required')],
+      ? el('span', { style: 'color:var(--ok)' }, 'installed — video+audio merge available')
+      : el('span', { style: 'color:var(--warn)' }, 'missing — 720p single-file downloads only')],
+    ['JS runtime', s.runtime ? el('span', { style: 'color:var(--ok)' }, `${s.runtime.name}`) : el('span', { style: 'color:var(--warn)' }, 'none — Node 20+ required')],
+    // This is the answer to "Sign in to confirm you're not a bot": a client
+    // listed here means YouTube answered instead of issuing a challenge.
+    ['YouTube access', s.client
+      ? el('span', { style: 'color:var(--ok)' }, `working via ${s.client}`)
+      : el('span', { style: 'color:var(--warn)' }, 'not confirmed yet — fetch a video to test')],
     ['Cookies', s.cookies
       ? el('span', { style: 'color:var(--ok)' }, 'loaded from VIDGRAB_COOKIES')
-      : el('span', { style: 'color:var(--warn)' }, 'none \u2014 some videos may be refused')],
+      : el('span', { class: 'muted' }, 'none — only needed if every player is refused')],
     ['Node', s.node],
     ['Platform', s.platform],
-    ['Server storage', el('span', { class: 'mono' }, 'none \u2014 media streams to your device')],
+    ['Storage', el('span', { class: 'mono' }, 'none on the server — media is saved on this device')],
   ];
+
   const table = $('#diag');
   table.innerHTML = '';
   for (const [k, v] of rows) {
@@ -168,7 +181,6 @@ $('#save').addEventListener('click', async () => {
     });
     stale = false;
     explainResume();
-    showCookiesStatus(settings.cookiesProblem);
     setMsg(msg, 'Saved. Downloads already running keep the settings they started with.', 'ok');
   } catch (err) {
     setMsg(msg, err.message, 'error');
@@ -190,17 +202,47 @@ $('#cookies').addEventListener('input', () => showCookiesStatus(null));
 
 $('#refresh').addEventListener('click', () => load().then(() => toast('Refreshed', 'ok')));
 
+/**
+ * Re-check every row against the device.
+ *
+ * Was POST /api/library/rescan, which is inert on this bridge and always
+ * answered {added: 0}, so the button reported "Nothing new found" no matter what
+ * had actually been deleted from the phone.
+ */
 $('#rescan').addEventListener('click', async () => {
-  const res = await api.post('/api/library/rescan');
-  toast(res.added ? `Added ${res.added} file(s)` : 'Nothing new found', res.added ? 'ok' : 'info');
-  load();
+  const items = await localLib.load();
+  const checks = await Promise.all(items.map(async (i) => ({ i, present: i.exists === false ? false : await store.has(i.ref) })));
+  const missing = checks.filter((c) => !c.present);
+  for (const { i, present } of missing) await localLib.update(i.id, { exists: false, missing: 'not found on rescan' });
+  await load();
+  if (missing.length) {
+    toast(`${items.length - missing.length} on this device, ${missing.length} missing`, 'warn', 7000);
+  } else {
+    toast(`All ${items.length} file(s) are on this device`, 'ok');
+  }
 });
 
+/**
+ * Delete every downloaded file from the device.
+ *
+ * Was POST /api/library/clear, a 409 on this bridge. The confirmation wording
+ * was already promising something that never happened.
+ */
 $('#wipe').addEventListener('click', async () => {
   if (!confirm('Delete ALL downloaded files from disk? This cannot be undone.')) return;
   if (!confirm('Really sure? Every video and song will be gone.')) return;
-  await api.post('/api/library/clear');
-  toast('Library cleared', 'ok');
+  const items = await localLib.load();
+  let removed = 0;
+  for (const item of items) {
+    try {
+      await store.remove(item.ref);
+      removed += 1;
+    } catch (err) {
+      console.warn('[settings] could not remove', item.id, err);
+    }
+  }
+  await localLib.clear();
+  toast(`Deleted ${removed} file(s) from this device`, 'ok');
   load();
 });
 

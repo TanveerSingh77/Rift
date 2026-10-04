@@ -1,4 +1,4 @@
-/**
+﻿/**
  * VidGrab - cloud bridge.
  *
  * The server resolves where a video lives and then gets out of the way. It
@@ -16,6 +16,7 @@
 import express from 'express';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,14 +29,19 @@ const PORT = Number(process.env.PORT) || 4321;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Ensure cookies from read-only secret mounts (Render) are available to yt-dlp.
+// The destination has to be writable because yt-dlp rewrites the jar as it
+// refreshes session cookies, and it must be OS-correct: the hard-coded /tmp
+// path this replaces silently failed on Windows, which is where local testing
+// happens, and every local run then fell through to the read-only source.
 const COOKIES_SRC = (process.env.VIDGRAB_COOKIES || '').trim();
-const COOKIES_DST = '/tmp/youtube_cookies.txt';
+const COOKIES_DST = path.join(os.tmpdir(), 'youtube_cookies.txt');
+
 if (COOKIES_SRC) {
   try {
     // Copy synchronously on startup so all subsequent spawns use writable cookies.
     fs.copyFileSync(COOKIES_SRC, COOKIES_DST);
   } catch (err) {
-    console.warn('Failed to copy VIDGRAB_COOKIES to /tmp:', err.message);
+    console.warn(`Failed to copy VIDGRAB_COOKIES to ${COOKIES_DST}:`, err.message);
   }
 }
 
@@ -101,8 +107,12 @@ const FFMPEG = resolveFfmpeg();
 /**
  * YouTube's challenge needs a JavaScript runtime. Node 20+ is used directly
  * here; there is no Deno in a Linux container image.
+ *
+ * `client` selects which YouTube app the extractor impersonates. It is threaded
+ * through by the caller that is retrying a bot check (see YT_CLIENTS); pass
+ * nothing to use yt-dlp's own default chain.
  */
-function baseArgs() {
+function baseArgs({ client } = {}) {
   const args = ['--no-colors', '--no-simulate'];
   const major = Number(process.versions.node.split('.')[0]);
   if (major >= 20) {
@@ -128,8 +138,51 @@ function baseArgs() {
       args.push('--cookies', COOKIES_SRC);
     }
   }
+
+  if (client) args.push('--extractor-args', `youtube:player_client=${client}`);
   return args;
 }
+
+/**
+ * YouTube apps to impersonate, in the order they are tried.
+ *
+ * This is the fix for "Sign in to confirm you're not a bot". That check is not
+ * about cookies and not about being logged out: YouTube applies it per player
+ * client based on the shape of the request, and a datacentre IP is challenged by
+ * the default `web` client almost every time. Cookies are the last resort, not
+ * the mechanism, and until this list existed the only way through them was to
+ * configure a secret the user does not have.
+ *
+ * Every entry here was verified to deliver real, playable bytes, not merely to
+ * answer metadata. That distinction matters and is not obvious:
+ *
+ *  - `android_vr`, `tv` and `ios` extract fine and then return HTTP 403 for the
+ *    media itself, so a client list built from "which one answers the API"
+ *    hands the device a 0-byte file with a success status.
+ *  - `tv_simply`, `mweb`, `web_safari` and `web_embedded` all serve bytes.
+ *
+ * `default` is last so no link is lost to this list being incomplete.
+ */
+const YT_CLIENTS = [
+  'tv_simply,mweb',
+  'web_safari',
+  'web_embedded,mweb',
+  'mweb',
+  'default',
+];
+
+/**
+ * Failures that mean "this client got challenged", as opposed to "this video is
+ * unavailable". Only the former is worth retrying with a different client.
+ */
+const CHALLENGE_RE = /sign in to confirm|confirm you'?re not a bot|not a bot|confirm your age|age-restricted|bot detection|http error 429|too many requests|po ?token|missing.*potoken|login required/i;
+
+function isChallenge(text) {
+  return CHALLENGE_RE.test(String(text || ''));
+}
+
+/** The last client that produced data, so /api/health can report what works. */
+let workingClient = null;
 
 function cleanError(text) {
   const lines = String(text)
@@ -141,7 +194,7 @@ function cleanError(text) {
   return (interesting[0] || lines[lines.length - 1] || '').replace(/^ERROR:\s*/, '');
 }
 
-function runYtdlp(args, { timeout = 90000 } = {}) {
+function runYtdlpOnce(args, { timeout = 90000 } = {}) {
   return new Promise((resolve, reject) => {
     if (!YTDLP) {
       reject(new Error(MISSING_BIN));
@@ -169,6 +222,40 @@ function runYtdlp(args, { timeout = 90000 } = {}) {
 }
 
 /**
+ * Run a yt-dlp command, stepping down the client ladder when challenged.
+ *
+ * `build` is a function of the client so each attempt is genuinely a different
+ * request. A pre-built argument array would make the retries identical, which
+ * costs six timeouts to produce the same error the first attempt already gave.
+ */
+async function runYtdlp(build, opts = {}) {
+  let last = null;
+  for (const client of YT_CLIENTS) {
+    try {
+      const out = await runYtdlpOnce(build(client), opts);
+      workingClient = client;
+      return out;
+    } catch (err) {
+      last = err;
+      // Anything that is not a challenge (a private video, an unsupported URL,
+      // a dead format) will fail identically for every client, so surface it now.
+      if (!isChallenge(err.message)) throw err;
+    }
+  }
+  throw last || new Error('Could not reach YouTube.');
+}
+
+/** The actionable form of a bot check, for the one case the ladder cannot fix. */
+function challengeMessage(err) {
+  const base = err?.message || 'YouTube refused the request.';
+  if (!isChallenge(base)) return base;
+  return COOKIES_SRC
+    ? `${base} The configured cookies were rejected too; they are probably expired.`
+    : `${base} This server has no YouTube cookies configured, which is the only remaining way through. `
+      + 'Export cookies.txt and set it as the VIDGRAB_COOKIES secret on the server.';
+}
+
+/**
  * Above 720p YouTube serves DASH only, so video and audio are separate streams
  * and there is no single muxed file a redirect could point at.
  */
@@ -188,7 +275,15 @@ const PROGRESSIVE_MAX = 720;
  * matches, so it closes the chain and keeps /save working on every video.
  */
 function directFormat(kind, maxHeight) {
-  if (kind === 'audio') return 'bestaudio[ext=m4a]/bestaudio[acodec!=none]/bestaudio';
+  // Keep this identical to streamFormat's audio selector. A "smarter" probe
+  // chain such as bestaudio[ext=m4a]/bestaudio[acodec!=none]/bestaudio looks
+  // better but breaks on most clients: they expose no audio-only formats at
+  // all, only combined ones, so every selector in that chain errors with
+  // "Requested format is not available" and the ladder burns a client on each
+  // one. Plain bestaudio/best matches on all of them. Nothing is lost by dropping
+  // the m4a preference -- /download renames to --audio-format after extracting,
+  // so the probe's ext never reaches the user.
+  if (kind === 'audio') return 'bestaudio/best';
   const h = Math.min(Number(maxHeight) || PROGRESSIVE_MAX, PROGRESSIVE_MAX);
   return [
     `best[ext=mp4][height<=${h}][acodec!=none][vcodec!=none]`,
@@ -228,8 +323,8 @@ function sanitizeFilename(name, fallback = 'video') {
  * streamFormat, which can merge freely because nothing reads %(url)s from it.
  */
 async function resolveMeta(url, { kind = 'video', maxHeight = 1080 } = {}) {
-  const { stdout } = await runYtdlp([
-    ...baseArgs(),
+  const { stdout } = await runYtdlp((client) => [
+    ...baseArgs({ client }),
     '--skip-download',
     '--no-playlist',
     '--no-warnings',
@@ -313,15 +408,293 @@ function readHeight(req, fallback) {
 // ----------------------------------------------------------------- routes
 
 /**
- * Stream the media through to the device without touching disk.
+ * Where a download is assembled before it is sent.
  *
- * This is the primary download route. It is deliberately same-origin: the
- * browser only honours Content-Disposition (and therefore only *saves* rather
- * than *plays*) for a same-origin response. Pointing the browser straight at
- * the cross-origin CDN URL instead would navigate to the video and lose the
- * filename, so the few bytes of overhead here are what make the save work.
+ * os.tmpdir(), not the app directory: this host's filesystem is small and
+ * ephemeral and gets wiped on spin-down, which is fine for a scratch file that
+ * lives for the length of one request.
+ */
+const SCRATCH = path.join(os.tmpdir(), 'vidgrab-scratch');
+
+/** Containers whose first bytes are legitimately an audio frame sync. */
+const AUDIO_EXTS = new Set(['mp3', 'm4a', 'm4b', 'aac', 'opus', 'ogg', 'oga', 'wav', 'flac', 'weba']);
+
+/**
+ * Does this look like the container we asked for?
+
  *
- * Costs this host's bandwidth allowance; use /save for large files.
+ * This check exists because of a silent failure that cost real downloads.
+ * yt-dlp's `-o -` writes to a pipe, which is not seekable, so it stops asking
+ * for a single muxed progressive file and concatenates the separate video and
+ * audio streams instead. The exit code is 0 and the byte count is larger than
+ * the real file, so nothing reports a problem, and the device is handed ~65MB
+ * of raw stream data with no MP4 header anywhere in it. Every such file plays as
+ * "That file could not be played."
+ *
+ * Sniffing the first bytes turns that into a retry while the response headers
+ * are still unwritable, so the device never sees the broken attempt.
+ */
+function looksLikeMedia(head, ext) {
+  if (!head || head.length < 4) return false;
+  const ascii = (from, len) => head.slice(from, from + len).toString('latin1');
+  const b0 = head[0];
+  const b1 = head[1];
+
+  // MP4 family: an ISO base media file begins with a box. 'ftyp' is the normal
+  // one; the rest are accepted because a fragmented or unusual mux can lead with
+  // one of them instead, and all of them are still a valid file to hand over.
+  if (head.length >= 8) {
+    const box = ascii(4, 4);
+    if (['ftyp', 'styp', 'moov', 'moof', 'mdat', 'free', 'skip', 'wide'].includes(box)) return true;
+  }
+  // Matroska / WebM.
+  if (b0 === 0x1a && b1 === 0x45 && head[2] === 0xdf && head[3] === 0xa3) return true;
+  // MPEG-TS: the sync byte repeats every 188 bytes.
+  if (b0 === 0x47 && head.length > 188 && head[188] === 0x47) return true;
+
+  // Everything below can only be the right answer when audio was what we asked
+  // for, so they are gated on the requested extension.
+  const wanted = String(ext || '').toLowerCase();
+  if (AUDIO_EXTS.has(wanted)) {
+    // Ogg (Vorbis / Opus / FLAC-in-Ogg).
+    if (ascii(0, 4) === 'OggS') return true;
+    // FLAC.
+    if (ascii(0, 4) === 'fLaC') return true;
+    // RIFF/WAVE.
+    if (ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WAVE') return true;
+    // ID3 tag, or a bare MPEG audio frame sync. Gated on `wanted` because a
+    // bare sync is only two bytes and collisions are unavoidable: FF FE is a
+    // perfectly valid MPEG-1 Layer I frame header, so accepting it for a request
+    // that expected an MP4 would wave through the very corruption this exists to
+    // catch.
+    if (ascii(0, 3) === 'ID3') return true;
+    if (b0 === 0xff && (b1 & 0xe0) === 0xe0) return true;
+  }
+
+  // Deliberately strict beyond this point. An unrecognised header is the exact
+  // shape of the concatenated-stream corruption described above, and accepting
+  // it would make this whole check a no-op while looking like it worked.
+  return false;
+}
+
+
+function sniffHead(file, bytes = 16) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(bytes);
+    const read = fs.readSync(fd, buf, 0, bytes, 0);
+    return buf.slice(0, read);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function rmQuiet(target) {
+  try {
+    fs.rmSync(target, { recursive: true, force: true });
+  } catch {
+    /* the scratch dir is disposable and gets swept on restart */
+  }
+}
+
+/**
+ * Download one link to a scratch file with a single yt-dlp client.
+ *
+ * Resolves with { file, size, ext } only once the file is on disk and its
+ * header has been verified, so the caller can decide whether to send it or try
+ * another client.
+ */
+function downloadToScratch({ target, kind, maxHeight, audioFormat, client }) {
+  return new Promise((resolve, reject) => {
+    if (!YTDLP) {
+      reject(new Error(MISSING_BIN));
+      return;
+    }
+
+    const dir = path.join(SCRATCH, `dl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const outTpl = path.join(dir, 'media.%(ext)s');
+
+    const args = [
+      ...baseArgs({ client }),
+      '--no-warnings',
+      '--no-playlist',
+      '--no-part',
+      '--no-mtime',
+      '--no-progress',
+      '--socket-timeout',
+      '120',
+      '--retries',
+      '10',
+// Sized to the host, not to YouTube. The scratch copy lives on the same
+      // ephemeral disk as everything else on a small instance, so the ceiling
+      // has to leave room for ffmpeg's temp files during extraction and for the
+      // OS itself. Video is already capped at 720p, where a real file is tens
+      // of megabytes, so this never fires on anything the ladder would serve.
+      '--max-filesize',
+      '300M',
+
+      '-o',
+      outTpl,
+    ];
+    if (kind === 'audio') {
+      args.push('-f', streamFormat(kind), '-x', '--audio-format', audioFormat);
+    } else {
+      args.push('--downloader', FFMPEG ? 'ffmpeg' : 'native', '-f', streamFormat(kind, maxHeight));
+    }
+    args.push(target);
+
+    const child = spawn(YTDLP, args, { windowsHide: true });
+    let stderr = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (d) => { stderr += d; });
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      rmQuiet(dir);
+      reject(new Error('yt-dlp timed out'));
+    }, 15 * 60 * 1000);
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      rmQuiet(dir);
+      reject(err);
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      let files = [];
+      try {
+        files = fs.readdirSync(dir);
+      } catch {
+        files = [];
+      }
+      const name = files.find((f) => f.startsWith('media.'));
+      if (code !== 0 || !name) {
+        const detail = cleanError(stderr || '');
+        rmQuiet(dir);
+        const err = new Error(detail || `yt-dlp produced no file (exit code ${code})`);
+        // The challenge text can be several lines above the last one.
+        err.raw = stderr;
+        reject(err);
+        return;
+      }
+
+      const file = path.join(dir, name);
+      let size = 0;
+      try {
+        size = fs.statSync(file).size;
+      } catch {
+        rmQuiet(dir);
+        reject(new Error('The downloaded file vanished before it could be sent.'));
+        return;
+      }
+      if (!size) {
+        rmQuiet(dir);
+        reject(new Error('The download finished empty.'));
+        return;
+      }
+
+      const ext = name.replace(/^media\./, '') || 'mp4';
+      // A real track is never a few bytes long. Checked as well as the header so
+      // a truncated or error-page body cannot pass as media.
+      if (size < 1024) {
+        rmQuiet(dir);
+        const err = new Error('The download was too small to be a real file.');
+        err.corrupt = true;
+        reject(err);
+        return;
+      }
+      let head = null;
+      try {
+        head = sniffHead(file, 200);
+      } catch {
+        /* treated as unverified below */
+      }
+      if (!looksLikeMedia(head, ext)) {
+        rmQuiet(dir);
+const err = new Error(`The ${ext} that came back was not a playable file.`);
+        err.corrupt = true;
+        reject(err);
+        return;
+      }
+
+      resolve({ file, dir, size, ext, name, mime: mimeFor(ext) });
+    });
+  });
+}
+
+/** Containers yt-dlp can produce here, and what the device should be told. */
+const MIME_TYPES = {
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  webm: 'video/webm',
+  mkv: 'video/x-matroska',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  opus: 'audio/ogg',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  weba: 'audio/webm',
+  wav: 'audio/wav',
+  flac: 'audio/flac',
+};
+
+const mimeFor = (ext) => MIME_TYPES[String(ext || '').toLowerCase()] || 'application/octet-stream';
+
+/**
+ * Send a verified scratch file to the device, then delete it.
+ *
+ * The file is streamed rather than buffered, so memory stays flat, and the
+ * scratch copy is removed the moment the last byte has gone out — including
+ * when the device hangs up halfway through, which is the common case on a
+ * phone leaving Wi-Fi.
+ */
+function sendFile(req, res, { file, dir, size, mime }, disposition) {
+  return new Promise((resolve) => {
+    res.writeHead(200, {
+      'Content-Type': mime,
+      'Content-Disposition': disposition,
+      // Real length, so the app can show a true percentage instead of a bar
+      // that fills up at an unknown rate.
+      'Content-Length': String(size),
+      'Cache-Control': 'no-store',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const stream = fs.createReadStream(file);
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      rmQuiet(dir);
+      resolve();
+    };
+
+    stream.on('error', () => {
+      res.destroy();
+      done();
+    });
+    res.on('close', done);
+    stream.on('end', () => {
+      res.end();
+      done();
+    });
+    stream.pipe(res);
+  });
+}
+
+/**
+ * Download the media and stream it to the device.
+ *
+ * Deliberately same-origin: the browser only honours Content-Disposition, and
+ * therefore only *saves* rather than *plays*, for a same-origin response.
+ *
+ * Each client on the ladder is tried in turn and its output is verified before
+ * any header is sent, so a challenged client, a client whose media URLs are
+ * refused, and a client that returns an unplayable file are all retried without
+ * the device ever seeing a broken attempt.
  */
 app.get('/download', async (req, res) => {
   if (gate(req, res)) return;
@@ -332,102 +705,64 @@ app.get('/download', async (req, res) => {
   const maxHeight = readHeight(req, 1080);
   const audioFormat = String(req.query.audioFormat || 'mp3').replace(/[^a-z0-9]/gi, '') || 'mp3';
 
+  if (req.method === 'HEAD') {
+    let info;
+    try {
+      info = await resolveMeta(target, { kind, maxHeight });
+    } catch (err) {
+      return res.status(422).json({ error: challengeMessage(err) });
+    }
+const ext = kind === 'audio' ? audioFormat : info.ext || 'mp4';
+    return res.status(200).set({
+      'Content-Type': mimeFor(ext),
+      'Content-Disposition': contentDisposition(`${info.title}.${ext}`),
+    }).end();
+  }
+
   let info;
   try {
     info = await resolveMeta(target, { kind, maxHeight });
   } catch (err) {
-    return res.status(422).json({ error: err.message });
+    return res.status(422).json({ error: challengeMessage(err) });
   }
 
-  const ext = kind === 'audio' ? audioFormat : info.ext || 'mp4';
-  const disposition = contentDisposition(`${info.title}.${ext}`);
+const ext = kind === 'audio' ? audioFormat : info.ext || 'mp4';
 
-  if (req.method === 'HEAD') {
-    return res.status(200).set({ 'Content-Type': 'application/octet-stream', 'Content-Disposition': disposition }).end();
-  }
+  // The client that just answered metadata is tried first: it is the most
+  // likely to answer the media request too.
+  const order = workingClient
+    ? [workingClient, ...YT_CLIENTS.filter((c) => c !== workingClient)]
+    : YT_CLIENTS;
 
-  const args = [
-    ...baseArgs(),
-    '--quiet',
-    '--no-warnings',
-    '--no-playlist',
-    '--no-part',
-    '--no-mtime',
-    '--no-progress',
-    '--socket-timeout',
-    '120',
-    '--retries',
-    '10',
-    '-o',
-    '-',
-  ];
-  if (kind === 'audio') {
-    args.push('-f', streamFormat(kind), '-x', '--audio-format', audioFormat);
-  } else {
-    args.push('--downloader', FFMPEG ? 'ffmpeg' : 'native', '-f', streamFormat(kind, maxHeight));
-  }
-  args.push(target);
-
-  const child = spawn(YTDLP, args, { windowsHide: true });
-  let stderr = '';
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (d) => { stderr += d; });
-
-  // A phone that closes the tab or drops off Wi-Fi must not leave yt-dlp
-  // pulling megabytes nobody will receive.
-  let settled = false;
-  const kill = () => {
-    if (settled) return;
-    settled = true;
-    if (!child.killed) child.kill('SIGKILL');
-  };
-  req.on('close', kill);
-  res.on('close', kill);
-
-  let started = false;
-  const begin = () => {
-    if (started || settled) return;
-    started = true;
-    res.writeHead(200, {
-      'Content-Type': 'application/octet-stream',
-      'Content-Disposition': disposition,
-      'Cache-Control': 'no-store',
-      // Stops any intermediary buffering the whole file before replying.
-      'X-Accel-Buffering': 'no',
-    });
-    child.stdout.pipe(res);
-  };
-
-  // Headers are held back until the first media byte on purpose: if yt-dlp
-  // fails during extraction there is nothing to send yet, and a 200 with an
-  // empty body would leave the phone holding a corrupt 0-byte file instead of
-  // a readable error.
-  child.stdout.once('data', begin);
-  child.stdout.once('error', () => {});
-  child.on('error', (err) => {
-    if (started) res.destroy();
-    else res.status(500).json({ error: err.message });
-  });
-  child.on('close', (code) => {
-    if (settled) return;
-    settled = true;
-    if (!started) {
-      const detail = String(stderr).trim().split(/\r?\n/).filter(Boolean).pop();
-      return res.status(502).json({ error: detail || `yt-dlp produced no data (exit code ${code})` });
+  let last = null;
+  for (const client of order) {
+    let got = null;
+    try {
+      got = await downloadToScratch({ target, kind, maxHeight, audioFormat, client });
+    } catch (err) {
+      last = err;
+      // A device that gave up mid-request should not keep the ladder running.
+      if (res.writableEnded || req.destroyed) return undefined;
+      if (!err.corrupt && !isChallenge(err.raw || err.message)) break;
+      continue;
     }
-    return res.end();
-  });
+    workingClient = client;
+    // Name the file after the container that actually arrived rather than the
+    // one metadata predicted. If a rung below the first had to serve webm, a
+    // ".mp4" name over webm bytes is a lie the device cannot recover from.
+    const realExt = kind === 'audio' ? audioFormat : got.ext || ext;
+    await sendFile(req, res, got, contentDisposition(`${info.title}.${realExt}`));
+    return undefined;
+  }
+
+  if (!res.headersSent) {
+    res.status(last?.corrupt ? 502 : 422).json({
+      error: challengeMessage(last || new Error('No YouTube player would serve that file.')),
+    });
+  }
+  return undefined;
 });
 
-/**
- * Redirect the device straight at the media.
- *
- * Zero media bytes and effectively zero bandwidth pass through this server,
- * which is the right choice for large files on a metered free tier. The cost
- * is that a redirect cannot set Content-Disposition on the final response, so
- * the saved filename comes from the CDN rather than the video title, and the
- * quality ceiling is 720p because that is the highest already-muxed MP4.
- */
 app.get('/save', async (req, res) => {
   if (gate(req, res)) return;
 
@@ -445,7 +780,7 @@ app.get('/save', async (req, res) => {
     });
     return res.end();
   } catch (err) {
-    return res.status(422).json({ error: err.message });
+    return res.status(422).json({ error: challengeMessage(err) });
   }
 });
 
@@ -455,7 +790,13 @@ app.post('/api/probe', async (req, res) => {
   if (!validUrl(target)) return res.status(400).json({ error: 'Paste a valid YouTube URL first.' });
 
   try {
-    const { stdout } = await runYtdlp([...baseArgs(), '-J', '--no-playlist', '--skip-download', target]);
+    const { stdout } = await runYtdlp((client) => [
+      ...baseArgs({ client }),
+      '-J',
+      '--no-playlist',
+      '--skip-download',
+      target,
+    ]);
     const data = JSON.parse(stdout);
     if (data._type === 'playlist') {
       return res.json({
@@ -478,9 +819,11 @@ app.post('/api/probe', async (req, res) => {
       isLive: Boolean(data.is_live),
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Failed to fetch playlist' });
+    return res.status(422).json({ error: challengeMessage(err) });
   }
 });
+
+
 
 /** Playlist listing. Flat mode, so it stays fast and needs no per-video call. */
 app.post('/api/playlist', async (req, res) => {
@@ -488,7 +831,10 @@ app.post('/api/playlist', async (req, res) => {
   if (!validUrl(target)) return res.status(400).json({ error: 'Paste a valid YouTube playlist URL.' });
 
   try {
-    const { stdout } = await runYtdlp([...baseArgs(), '-J', '--flat-playlist', '--skip-download', target], { timeout: 120000 });
+    const { stdout } = await runYtdlp(
+      (client) => [...baseArgs({ client }), '-J', '--flat-playlist', '--skip-download', target],
+      { timeout: 120000 },
+    );
     const data = JSON.parse(stdout);
     if (data._type !== 'playlist') return res.status(422).json({ error: 'That link is not a playlist.' });
 
@@ -529,6 +875,11 @@ app.get('/api/health', (req, res) => {
       ffmpeg: { found: Boolean(FFMPEG), path: FFMPEG },
       runtime: { name: 'node', path: process.execPath },
       cookies: Boolean((process.env.VIDGRAB_COOKIES || '').trim()),
+      cookiesProblem: (process.env.VIDGRAB_COOKIES || '').trim() ? null : 'not set',
+      // Which YouTube app is answering right now. Non-null means at least one
+      // client has cleared the bot check on this host.
+      client: workingClient,
+      clients: YT_CLIENTS,
       platform: process.platform,
       node: process.version,
     },
@@ -547,19 +898,17 @@ app.get('/api/mode', (req, res) => res.json({ mode: 'bridge' }));
 // well-formed shape keeps the Videos/Music/Player pages rendering instead of
 // throwing on a 404, and makes the "nothing is stored here" behaviour obvious
 // to anything that inspects the API.
+//
+// Media lives on the device (see public/js/store.js), so the library is a client
+// concern now. These are here so an older cached page still gets JSON.
 const NO_LIBRARY = { items: [], stats: { total: 0, videos: 0, music: 0, bytes: 0, completed: 0 }, mode: 'bridge' };
-const NO_STORE = 'This server keeps no library. Files are streamed straight to your device via /download.';
+const NO_STORE = 'This server keeps no library. Media is saved on your device, not here.';
 
 app.get('/api/library', (req, res) => res.json(NO_LIBRARY));
 // The Playlist page asks for recently used playlists. It is listed here so the
 // request resolves to JSON; without it the SPA fallback answered with
 // index.html and the client tried to parse a web page as a list.
 app.get('/api/playlists', (req, res) => res.json([]));
-app.get('/api/jobs', (req, res) => res.json([]));
-app.delete('/api/jobs/:id', (req, res) => res.json({ cancelled: false }));
-app.get('/api/library/rescan', (req, res) => res.json({ added: 0 }));
-app.post('/api/library/rescan', (req, res) => res.json({ added: 0 }));
-app.post('/api/library/clear', (req, res) => res.json({ deleted: 0 }));
 
 // Watch positions belong to a stored file, and nothing is stored. The player
 // still posts here, so it gets an accepted no-op rather than a failed request
@@ -608,7 +957,6 @@ app.post('/api/upload', STUBBED);
 app.post('/api/reveal', STUBBED);
 app.delete('/api/library/:id', STUBBED);
 app.get('/media/*', STUBBED);
-
 app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
 
 // SPA-style fallback for page requests only. Falling back for assets too would
@@ -625,8 +973,21 @@ app.listen(PORT, HOST, () => {
   console.log(`\n  VidGrab bridge  http://${HOST}:${PORT}`);
   console.log(`  ytdlp: ${YTDLP || 'NOT FOUND - see render-build.sh'}`);
   console.log(`  ffmpeg: ${FFMPEG || 'NOT FOUND (no video+audio merge, no MP3)'}`);
-  console.log(`  cookies: ${(process.env.VIDGRAB_COOKIES || '').trim() ? 'loaded' : 'none'}`);
-  console.log('  storage: none - media is streamed to the device\n');
+  console.log(`  cookies: ${(process.env.VIDGRAB_COOKIES || '').trim() ? 'loaded' : 'none (player fallback only)'}`);
+  console.log(`  youtube players: ${YT_CLIENTS.join(' -> ')}`);
+  console.log('  storage: no library - media is downloaded to a temp file, sent, then deleted\n');
 });
+
+// A restart must not leave a device-sized file lying around in the temp dir.
+function sweepScratch() {
+  rmQuiet(SCRATCH);
+}
+process.on('exit', sweepScratch);
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    sweepScratch();
+    process.exit(0);
+  });
+}
 
 process.on('uncaughtException', (err) => console.error('[uncaught]', err));

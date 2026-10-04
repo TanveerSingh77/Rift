@@ -55,11 +55,50 @@ function genId() {
   return 'vl_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+/**
+ * Rows written before downloads were persisted.
+ *
+ * The Playlist page used to insert a library row for every track *before*
+ * starting the transfer, and the transfer wrote nothing. Every one of those rows
+ * claims `exists: true` and carries no `ref`, no `file` and no upload marker:
+ * they are a promise the app never kept, and they are exactly why My Music looked
+ * full of songs that answered "That file could not be played."
+ *
+ * They are downgraded rather than deleted, so the original link survives and
+ * Download again still works. A row that does have a `ref` is a real file and is
+ * left alone.
+ */
+function isPhantom(item) {
+  if (!item || item.exists === false) return false;
+  if (item.ref) return false;
+  if (item.uploaded) return false;
+  // A real file:// or content:// path counts as a file too.
+  if (item.file && /^(file|content|blob|https?):/i.test(item.file)) return false;
+  return true;
+}
+
 export async function load() {
   try {
     const value = await readRaw();
     const data = value ? JSON.parse(value) : [];
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) return [];
+
+    let changed = false;
+    const next = [];
+    for (const item of data) {
+      if (isPhantom(item)) {
+        changed = true;
+        next.push({ ...item, exists: false, missing: 'never downloaded' });
+        continue;
+      }
+      next.push(item);
+    }
+    if (changed) {
+      // Best effort: if this write fails the rows are still downgraded in
+      // memory for this session, which is the part the user can see.
+      await save(next).catch(() => {});
+    }
+    return next;
   } catch {
     return [];
   }

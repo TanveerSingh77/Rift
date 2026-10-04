@@ -1,5 +1,6 @@
-import { api, $, el, setMsg, toast, fmtDuration, markActiveNav, renderSetupStatus, extractId } from './common.js';
+import { api, $, el, setMsg, toast, fmtDuration, fmtBytes, markActiveNav, renderSetupStatus, extractId } from './common.js';
 import * as localLib from './localLibrary.js';
+import * as downloader from './downloader.js';
 
 markActiveNav();
 
@@ -11,6 +12,7 @@ const state = {
   quality: 1080,
   info: null,
   busy: false,
+  stopped: false,
 };
 
 const urlInput = $('#url');
@@ -146,47 +148,25 @@ urlInput.addEventListener('input', () => {
 // ------------------------------------------------------------- download
 
 /**
- * Build the URL the browser is sent to.
+ * The row a link is downloaded under.
  *
- * This must stay same-origin. Navigating to our /download route means the
- * response carries Content-Disposition, so the phone saves the file under its
- * real title. Handing the browser the raw cross-origin CDN URL instead would
- * navigate to the video and play it rather than save it.
+ * Kept next to save() so the Download button and "Save again" in the recent
+ * list produce identical library rows, and therefore the same file on disk
+ * instead of a second copy under a different name.
  */
-const TOKEN_KEY = 'vidgrab_token';
-
-function accessToken() {
-  try {
-    return localStorage.getItem(TOKEN_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
-function saveUrlFor(url) {
-  const kind = 'video';
-  const height = fastMode.checked ? Math.min(state.quality, 720) : state.quality;
-  const route = fastMode.checked ? 'save' : 'download';
-  const params = new URLSearchParams({ url, kind, height: String(height) });
-  const token = accessToken();
-  if (token) params.set('token', token);
-  return `/${route}?${params.toString()}`;
-}
-
-async function recordHistory(url, title) {
-  try {
-    const t = title && title.trim() ? title.trim() : url;
-    const mediaId = extractId(url);
-    await localLib.upsert({
-      url,
-      kind: 'video',
-      title: t,
-      // mediaId is what the Videos grid reads to draw its thumbnail.
-      ...(mediaId ? { id: `yt_${mediaId}`, mediaId, sourceUrl: url } : {}),
-    });
-  } catch (e) {
-    console.warn('local library upsert failed', e);
-  }
+function rowFor(url, title) {
+  const mediaId = extractId(url);
+  return {
+    id: mediaId ? `yt_${mediaId}` : `yt_${Date.now().toString(36)}`,
+    url,
+    kind: 'video',
+    title: title && title.trim() ? title.trim() : (state.info?.title || url),
+    thumbnail: state.info?.thumbnail || null,
+    duration: state.info?.duration || null,
+    uploader: state.info?.uploader || null,
+    ...(mediaId ? { mediaId, sourceUrl: url } : { sourceUrl: url }),
+    height: fastMode.checked ? Math.min(state.quality, 720) : state.quality,
+  };
 }
 
 function remember(title, url) {
@@ -233,7 +213,7 @@ function renderRecent() {
           el('button', {
             class: 'icon-btn',
             title: 'Save again',
-            onclick: () => { window.location.href = saveUrlFor(item.url); },
+            onclick: () => save(item.url, item.title),
           }, '\u2b07'),
         ),
         el('div', { class: 'job-sub' }, el('span', { class: 'muted' }, new Date(item.at).toLocaleString())),
@@ -247,20 +227,55 @@ renderRecent();
 /**
  * Kick off one save.
  *
- * There is no server-side job to poll: the browser owns the transfer and shows
- * its own progress, so all this does is navigate. The iframe trick would be
- * needed to save several files without leaving the page, but a plain navigation
- * is what actually triggers the download reliably on mobile, so bulk mode
- * opens each link directly and asks the user to come back.
+ * There is no server-side job to poll and no navigation to make. The bytes are
+ * fetched here through downloader.js and written to the device by store.js, so
+ * the page can show real progress and a real failure. Navigating to /download
+ * instead relied on the browser acting on Content-Disposition, which an Android
+ * WebView silently ignores: the file was never written, and the app navigated
+ * to a response it could not do anything with.
+ *
+ * `manageBusy` is false when a caller is already driving a sequence and is
+ * holding the button itself.
  */
-function save(url, title) {
-  const t = title || state.info?.title || url;
-  remember(t, url);
-  recordHistory(url, t);
-  window.location.href = saveUrlFor(url);
+async function save(url, title, { manageBusy = true } = {}) {
+  if (manageBusy) {
+    if (state.busy) return;
+    state.busy = true;
+    downloadBtn.disabled = true;
+  }
+  remember(title || state.info?.title || url, url);
+
+  const row = rowFor(url, title);
+
+  const show = (text) => setMsg(msg, text, 'info');
+  try {
+    show('Starting\u2026');
+    const { item } = await downloader.fetchAndSave(row, {
+      onProgress: (p) => {
+        if (p.phase === 'saving') show('Saving to your device\u2026');
+        else if (p.total > 0) {
+          show(`Downloading ${Math.round(p.percent)}% \u00b7 ${fmtBytes(p.loaded)} of ${fmtBytes(p.total)}`);
+        } else show('Starting\u2026');
+      },
+    });
+    await localLib.upsert(item);
+    setMsg(msg, `Saved "${item.title}" (${fmtBytes(item.size)}) to your device.`, 'ok');
+    toast('Saved to this device', 'ok');
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      setMsg(msg, 'Download stopped.', 'warn');
+    } else {
+      setMsg(msg, err?.message || 'The download failed.', 'error');
+    }
+  } finally {
+    if (manageBusy) {
+      state.busy = false;
+      downloadBtn.disabled = false;
+    }
+  }
 }
 
-downloadBtn.addEventListener('click', () => {
+downloadBtn.addEventListener('click', async () => {
   if (state.busy) return;
   const urls = (bulkInput.value.trim() || urlInput.value.trim()).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (!urls.length) return;
@@ -272,31 +287,33 @@ downloadBtn.addEventListener('click', () => {
   }
 
   if (urls.length > 1) {
-    // Phones refuse or silently drop parallel downloads, so this saves the
-    // first and queues the rest to be confirmed one at a time.
+    // One at a time. A phone asked to hold several transfers at once drops
+    // most of them, so the list is worked through in order and the button turns
+    // into a progress report instead of the page being navigated away.
     state.busy = true;
     downloadBtn.disabled = true;
-    setMsg(msg, `Saving the first of ${urls.length}. When it finishes, press Download again for the next one.`, 'info');
-    remember(state.info?.title || urls[0], urls[0]);
-    window.location.href = saveUrlFor(urls[0]);
-    window.addEventListener('pageshow', () => {
+    let done = 0;
+    try {
+      for (const url of urls) {
+        if (state.stopped) break;
+        setMsg(msg, `Saving ${done + 1} of ${urls.length}\u2026`, 'info');
+        await save(url, done === 0 ? state.info?.title : null, { manageBusy: false });
+        done += 1;
+      }
+    } finally {
       state.busy = false;
-      bulkInput.value = urls.slice(1).join('\n');
-      urlInput.value = '';
       downloadBtn.disabled = false;
-      setMsg(msg, `${urls.length - 1} left. Press Download for the next one.`, 'info');
-    }, { once: true });
+    }
+    if (done === urls.length) {
+      setMsg(msg, `Saved ${done} link${done === 1 ? '' : 's'} to your device.`, 'ok');
+    } else {
+      setMsg(msg, `Saved ${done} of ${urls.length}. Check the messages above for problems.`, 'warn');
+    }
     return;
   }
 
-  save(urls[0]);
-  setMsg(msg, 'Download started. Check your phone\u2019s Downloads folder.', 'ok');
+  await save(urls[0]);
 });
 
-// Coming back from a download should offer the next link rather than the old
-// cleared form.
-window.addEventListener('pageshow', (e) => {
-  if (e.persisted) return;
-  const pending = bulkInput.value.trim().split(/\r?\n/).filter(Boolean);
-  if (pending.length) downloadBtn.disabled = false;
-});
+// Stopping must not leave a half-written row in the library.
+window.addEventListener('pagehide', () => downloader.cancel());

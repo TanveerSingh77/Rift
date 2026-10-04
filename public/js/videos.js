@@ -1,6 +1,8 @@
 import { api, $, $$, el, toast, fmtDuration, fmtBytes, fmtWhen, thumbUrl, markActiveNav, saveToDevice, revealInFolder } from './common.js';
 import { onCleanup } from './app.js';
 import * as localLib from './localLibrary.js';
+import * as store from './store.js';
+import * as downloader from './downloader.js';
 
 markActiveNav();
 
@@ -12,14 +14,20 @@ const player = $('#player');
 
 async function load() {
   const items = await localLib.load();
-  state.items = items.filter((i) => i.kind === 'video').map((i) => ({
+  // Checked against the device rather than trusted from the row, so a file the
+  // OS has cleared is reported as missing instead of failing at playback.
+  const videos = items.filter((i) => i.kind === 'video');
+  state.items = await Promise.all(videos.map(async (i) => ({
     ...i,
     progress: i.progress || {},
-    exists: i.exists !== false,
-  }));
-  const bytes = state.items.reduce((s, it) => s + (it.size || 0), 0);
+    exists: i.exists === false ? false : await store.has(i.ref),
+  })));
+  const bytes = state.items.filter((i) => i.exists).reduce((s, it) => s + (it.size || 0), 0);
   const completed = state.items.filter((it) => it.progress?.completed).length;
-  $('#stats').innerHTML = `${state.items.length} video(s) · ${fmtBytes(bytes)}<br><span class="muted">${completed} finished</span>`;
+  const missing = state.items.filter((i) => !i.exists).length;
+  $('#stats').innerHTML = `${state.items.length} video(s) \u00b7 ${fmtBytes(bytes)}`
+    + `${missing ? ` \u00b7 <span style="color:var(--warn)">${missing} missing</span>` : ''}`
+    + `<br><span class="muted">${completed} finished</span>`;
   render();
 }
 
@@ -120,10 +128,7 @@ function card(item) {
           title: 'Delete',
           onclick: async (e) => {
             e.stopPropagation();
-            if (!confirm(`Delete "${item.title}" from disk? This cannot be undone.`)) return;
-            await api.del(`/api/library/${item.id}`);
-            toast('Deleted', 'ok');
-            load();
+            await deleteItem(item);
           },
         }, '✕'),
       ),
@@ -132,8 +137,54 @@ function card(item) {
   return node;
 }
 
+/**
+ * Delete a video and the file it occupies on the device.
+ *
+ * The old version called DELETE /api/library/<id>, which this bridge answers
+ * with a 409 because it holds no library, then reported success and left both
+ * the row and the file in place.
+ */
+async function deleteItem(item) {
+  if (!confirm(`Delete "${item.title}" from disk? This cannot be undone.`)) return;
+  try {
+    await store.remove(item.ref);
+  } catch (err) {
+    console.warn('[videos] could not remove file', err);
+  }
+  await localLib.remove(item.id);
+  toast('Deleted from this device', 'ok');
+  load();
+}
+
 function saveFile(item) {
+  // Nothing on disk means the only useful thing to do is fetch it again, not
+  // report a location that does not exist.
+  if (!item.ref) {
+    refetch(item);
+    return;
+  }
   saveToDevice(item);
+}
+
+/** Re-download a row whose file is gone. The link in the row makes this possible. */
+async function refetch(item) {
+  if (!item.url || !/^https?:\/\//i.test(item.url)) {
+    toast('That video has no link saved, so it cannot be downloaded again.', 'error');
+    return;
+  }
+  toast('Downloading again\u2026', 'info');
+  try {
+    const { item: saved } = await downloader.redownload(item, {
+      onProgress: (p) => {
+        if (p.phase === 'saving') toast('Saving to this device\u2026', 'info', 2000);
+      },
+    });
+    await localLib.upsert(saved);
+    toast(`Downloaded again \u00b7 ${fmtBytes(saved.size)}`, 'ok');
+    load();
+  } catch (err) {
+    toast(err?.message || 'Could not download that again.', 'error');
+  }
 }
 
 async function reveal(item) {
@@ -141,9 +192,9 @@ async function reveal(item) {
 }
 
 // ---------------------------------------------------------------- player
-function openPlayer(item) {
+async function openPlayer(item) {
   if (item.exists === false) {
-    toast('That file is missing from disk. Try Rescan folder.', 'error');
+    toast('That file is missing from disk. Use Download again to fetch it.', 'error');
     return;
   }
   state.current = item;
@@ -153,11 +204,27 @@ function openPlayer(item) {
 
   const holder = $('#media-holder');
   holder.innerHTML = '';
+
+  // Resolved before the element is built, because the source is the stored file
+  // rather than a server path that no longer exists.
+  let src = null;
+  try {
+    src = await store.playableUrl(item);
+  } catch (err) {
+    console.warn('[videos] could not open video', err);
+  }
+  if (state.current !== item) return;
+
+  if (!src) {
+    holder.append(el('div', { class: 'empty small' }, 'That file could not be played. Use Download again to fetch it.'));
+    return;
+  }
+
   const media = document.createElement('video');
   media.controls = true;
   media.preload = 'metadata';
   media.playsInline = true;
-  media.src = `/media/${encodeURI(item.file)}`;
+  media.src = src;
   holder.append(media);
   state.media = media;
 
@@ -281,11 +348,8 @@ $('#p-download').addEventListener('click', () => {
 $('#p-delete').addEventListener('click', async () => {
   const item = state.current;
   if (!item) return;
-  if (!confirm(`Delete "${item.title}" from disk?`)) return;
   closePlayer();
-  await api.del(`/api/library/${item.id}`);
-  toast('Deleted', 'ok');
-  load();
+  await deleteItem(item);
 });
 
 $('#search').addEventListener('input', (e) => {
@@ -304,9 +368,16 @@ $('#filters').addEventListener('click', (e) => {
   render();
 });
 $('#rescan').addEventListener('click', async () => {
-  const res = await api.post('/api/library/rescan');
-  toast(res.added ? `Found ${res.added} new file(s)` : 'Everything is already indexed', res.added ? 'ok' : 'info');
-  load();
+  // Was POST /api/library/rescan, which is inert on this bridge and always
+  // answered {added: 0}. The files are on the device, so they are statted here.
+  await load();
+  const missing = state.items.filter((i) => i.exists === false).length;
+  const present = state.items.length - missing;
+  if (missing) {
+    toast(`${present} on this device, ${missing} missing. Download them again from the Download page.`, 'warn', 7000);
+  } else {
+    toast(`${present} video(s) on this device`, 'ok');
+  }
 });
 $('#clear-progress').addEventListener('click', async () => {
   if (!confirm('Forget every saved watch position? Files stay on disk.')) return;

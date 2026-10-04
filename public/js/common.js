@@ -1,3 +1,5 @@
+import * as store from './store.js';
+
 export const api = {
   async req(method, url, body) {
     const opts = { method, headers: {} };
@@ -153,56 +155,46 @@ export function markActiveNav() {
 /**
  * Save a library item to the device again.
  *
- * Tracks saved from the Playlist page never touched this server: the media was
- * piped straight to the phone, so there is no server-side file to serve back.
- * Those are re-fetched from their original link. Requesting /media/<missing>
- * instead only ever produced the 409 "this server keeps no library" message,
- * which reads as a broken app rather than a deliberate design.
+ * The file is already on the device, so this is a no-op that reports where the
+ * file lives. The old version fired a hidden iframe at /download, which is what
+ * made re-saving appear to work on desktop while writing nothing on a phone.
  */
-export function saveToDevice(item) {
-  if (item && item.url && /^https?:\/\//i.test(item.url)) {
-    const params = new URLSearchParams({ url: item.url, kind: item.kind === 'video' ? 'video' : 'audio' });
-    if (item.kind !== 'video') params.set('audioFormat', 'mp3');
-    const token = (() => {
-      try {
-        return localStorage.getItem('vidgrab_token') || '';
-      } catch {
-        return '';
-      }
-    })();
-    if (token) params.set('token', token);
-    const frame = el('iframe', {
-      src: `/download?${params.toString()}`,
-      'aria-hidden': 'true',
-      style: 'position:absolute;width:0;height:0;border:0;visibility:hidden',
-    });
-    document.body.append(frame);
-    setTimeout(() => frame.remove(), 120000);
-    return;
+export async function saveToDevice(item) {
+  if (!item) return '';
+  try {
+    const where = await store.exportToDevice(item);
+    if (where) {
+      toast(`Already saved on this device: ${where}`, 'info', 7000);
+    } else {
+      toast('Saved to your Downloads folder.', 'ok');
+    }
+    return where;
+  } catch (err) {
+    console.warn('[save] export failed', err);
+    toast('Could not save that file again.', 'error');
+    return '';
   }
-
-  const a = document.createElement('a');
-  a.href = `/media/${encodeURI(item.file)}?download=1`;
-  a.download = '';
-  a.click();
 }
 
 /**
  * Point the user at the file on disk.
  *
- * There is nothing to reveal on the server for a device-streamed save, so say
- * where it actually went rather than surfacing the no-library 409.
+ * Reports the real path now that there is a real file. The /api/reveal route is
+ * gone from this bridge by design: there is no server-side library to open a
+ * file manager for.
  */
 export async function revealInFolder(item) {
-  if (!item || !item.file) {
-    toast('Saved straight to this device \u2014 look in your Downloads folder.', 'info');
+  if (!item) return;
+  const where = await store.locationOf(item.ref).catch(() => '');
+  if (where) {
+    toast(where, 'info', 8000);
     return;
   }
-  try {
-    await api.post('/api/reveal', { id: item.id });
-  } catch {
-    alert(item.file);
+  if (item.url && /^https?:\/\//i.test(item.url)) {
+    toast('This track is not downloaded yet. Download it first.', 'info');
+    return;
   }
+  toast('No file on disk for that item.', 'warn');
 }
 
 /**

@@ -2,6 +2,8 @@
 import { onCleanup } from './app.js';
 import * as player from './player.js';
 import * as localLib from './localLibrary.js';
+import * as store from './store.js';
+import * as downloader from './downloader.js';
 
 markActiveNav();
 
@@ -30,14 +32,32 @@ const audio = player.getAudio();
 
 async function load() {
   try {
-    const items = await localLib.load();
-    state.items = items
+    const raw = await localLib.load();
+    // Existence is checked against the device, not against the row. A row can
+    // outlive its file — the OS clears app storage, the user deletes by hand —
+    // and this is what turns that into a "download again" prompt instead of a
+    // silent failure when the play button is pressed.
+    const checked = await Promise.all(raw
       .filter((i) => i.kind === 'audio')
-      .map((i) => ({ ...i, progress: i.progress || {} }))
-      .filter((i) => i.exists !== false);
-    player.setLibrary(state.items);
-    const bytes = state.items.reduce((s, it) => s + (it.size || 0), 0);
-    $('#stats').textContent = `${state.items.length} song${state.items.length === 1 ? '' : 's'}${DOT}${fmtBytes(bytes)}`;
+      .map(async (i) => {
+        const present = i.exists === false ? false : await store.has(i.ref);
+        return {
+          ...i,
+          progress: i.progress || {},
+          exists: present,
+          missing: i.exists === false ? i.missing : (present ? null : 'file was removed from this device'),
+        };
+      }));
+
+    state.items = checked;
+    player.setLibrary(checked);
+    const bytes = checked.filter((i) => i.exists).reduce((s, it) => s + (it.size || 0), 0);
+    const gone = checked.filter((i) => !i.exists).length;
+    $('#stats').textContent = [
+      `${checked.length} song${checked.length === 1 ? '' : 's'}`,
+      fmtBytes(bytes),
+      gone ? `${gone} missing` : null,
+    ].filter(Boolean).join(DOT);
     if (!player.getState().itemId) player.setQueue(visible().map((i) => i.id), 0);
     render();
   } catch (err) {
@@ -92,9 +112,14 @@ function render() {
           el(
             'div',
             { class: 's' },
-            [item.duration ? fmtDuration(item.duration) : null, fmtBytes(item.size), item.sourceUrl ? 'yt' : 'uploaded', fmtWhen(item.addedAt)]
-              .filter(Boolean)
-              .join(DOT),
+            !item.exists
+              ? [item.missing || 'not on this device', item.sourceUrl ? '\u00b7 press play to stream' : null].filter(Boolean).join(' \u00b7 ')
+              : [
+                item.duration ? fmtDuration(item.duration) : null,
+                fmtBytes(item.size),
+                item.filename || null,
+                fmtWhen(item.addedAt),
+              ].filter(Boolean).join(DOT),
           ),
         ),
         // Shown on phones only, where a stray row tap while scrolling would
@@ -145,15 +170,60 @@ function thumbNode(item) {
   });
 }
 
+/**
+ * Delete a song, including the file it occupies on the device.
+ *
+ * The old version called DELETE /api/library/<id>, which this bridge answers
+ * with a 409 because it keeps no library, then announced "Deleted" and left the
+ * row on screen. The bytes are on the device, so they are removed from the
+ * device.
+ */
 async function removeItem(item) {
   if (!confirm(`Delete "${item.title}" from disk?`)) return;
   if (player.getState().itemId === item.id) player.stop();
-  await api.del(`/api/library/${item.id}`);
-  toast('Deleted', 'ok');
+  try {
+    await store.remove(item.ref);
+  } catch (err) {
+    console.warn('[music] could not remove file', err);
+  }
+  await localLib.remove(item.id);
+  toast('Deleted from this device', 'ok');
   load();
 }
 
+/**
+ * Fetch a track again.
+ *
+ * Offered because a row can outlive its file: the OS clears app storage, the
+ * user deletes by accident, or a row carried over from an older build that never
+ * wrote one at all. Keeping the link in the row is what makes recovery possible.
+ */
+async function refetch(item) {
+  if (!item.url || !/^https?:\/\//i.test(item.url)) {
+    toast('That song has no link saved, so it cannot be downloaded again.', 'error');
+    return;
+  }
+  toast('Downloading again\u2026', 'info');
+  try {
+    const { item: saved } = await downloader.redownload(item, {
+      onProgress: (p) => {
+        if (p.phase === 'saving') toast('Saving to this device\u2026', 'info', 2000);
+      },
+    });
+    await localLib.upsert(saved);
+    toast(`Downloaded again \u00b7 ${fmtBytes(saved.size)}`, 'ok');
+    load();
+  } catch (err) {
+    toast(err?.message || 'Could not download that again.', 'error');
+  }
+}
+
 function saveFile(item) {
+  // No file on disk means "download it again", not "here is where it is".
+  if (!item.ref) {
+    refetch(item);
+    return;
+  }
   saveToDevice(item);
 }
 
@@ -221,8 +291,11 @@ function openActions(item) {
   const list = $('#act-list');
   list.innerHTML = '';
   list.append(
-    actionRow(ICON_DOWNLOAD, 'Save to this phone', () => saveFile(item)),
-    actionRow(ICON_REVEAL, 'Show in folder', () => reveal(item)),
+    item.ref ? actionRow(ICON_DOWNLOAD, 'Save to this phone', () => saveFile(item)) : null,
+    // A row without a file can only be fixed by downloading it, so this
+    // replaces the save action rather than sitting next to a useless one.
+    item.ref ? null : actionRow(ICON_DOWNLOAD, 'Download again', () => refetch(item)),
+    actionRow(ICON_REVEAL, 'Show where it is', () => reveal(item)),
     actionRow(ICON_DELETE, 'Delete from disk', () => removeItem(item), true),
   );
   openSheet('actions');
@@ -463,14 +536,51 @@ $('#sort').addEventListener('change', (e) => {
   state.sort = e.target.value;
   render();
 });
+/**
+ * Re-check every row against the device.
+ *
+ * This used to call /api/library/rescan, which is inert on this bridge and
+ * always answered {added: 0}, so the button reported "Everything is already
+ * indexed" no matter what had actually been deleted. It now stats each file.
+ */
 $('#rescan').addEventListener('click', async () => {
-  const res = await api.post('/api/library/rescan');
-  toast(res.added ? `Found ${res.added} new file(s)` : 'Everything is already indexed', res.added ? 'ok' : 'info');
-  load();
+  await load();
+  const missing = state.items.filter((i) => !i.exists).length;
+  const present = state.items.length - missing;
+  if (missing) {
+    toast(`${present} on this device, ${missing} missing. Use the \u22ef menu on a missing song to download it again.`, 'warn', 7000);
+  } else {
+    toast(`${present} song${present === 1 ? '' : 's'} on this device`, 'ok');
+  }
 });
 
 // ---------------------------------------------------------------- upload
 $('#upload-btn').addEventListener('click', () => $('#upload').click());
+
+/** One picked file becomes one library row, stored on the device like any other. */
+async function addFile(file) {
+  const id = `up_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const title = String(file.name || 'track').replace(/\.[a-z0-9]{2,5}$/i, '');
+  const saved = await store.save(id, file, title, file.name);
+  return {
+    id,
+    kind: 'audio',
+    title,
+    // Uploaded files have no YouTube link, so this is what keeps them out of
+    // the "download again" path and marks them as genuinely local.
+    uploaded: true,
+    ref: saved.ref,
+    store: saved.backend,
+    uri: saved.uri || null,
+    filename: saved.name,
+    name: saved.name,
+    mime: saved.mime || file.type || 'audio/mpeg',
+    size: saved.size,
+    file: saved.path || null,
+    exists: true,
+    duration: null,
+  };
+}
 
 $('#upload').addEventListener('change', async (e) => {
   const files = [...e.target.files];
@@ -481,39 +591,22 @@ $('#upload').addEventListener('change', async (e) => {
   const fill = $('#upload-fill');
   const text = $('#upload-text');
   bar.hidden = false;
-  setMsg($('#msg'), `Uploading ${files.length} file(s)...`, 'info');
+  setMsg($('#msg'), `Adding ${files.length} file(s) to this device\u2026`, 'info');
 
-  const form = new FormData();
-  for (const f of files) form.append('file', f, f.name);
-
-  // XHR because uploads need a real progress bar, fetch does not expose one.
+  // Straight to the device, not to /api/upload. This bridge stores nothing on
+  // the server, so an upload is a local write and pretending otherwise only
+  // produced a 409.
+  let saved = 0;
   try {
-    const res = await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/upload');
-      xhr.upload.onprogress = (ev) => {
-        if (!ev.lengthComputable) return;
-        const pct = Math.round((ev.loaded / ev.total) * 100);
-        fill.style.width = `${pct}%`;
-        text.textContent = `${pct}%${DOT}${fmtBytes(ev.loaded)} of ${fmtBytes(ev.total)}`;
-      };
-      xhr.onload = () => {
-        let body = {};
-        try {
-          body = JSON.parse(xhr.responseText);
-        } catch {
-          body = { error: xhr.responseText.slice(0, 200) };
-        }
-        if (xhr.status >= 200 && xhr.status < 300) resolve(body);
-        else reject(new Error(body.error || `Upload failed (${xhr.status})`));
-      };
-      xhr.onerror = () => reject(new Error('Upload failed: connection lost'));
-      xhr.send(form);
-    });
-
-    fill.style.width = '100%';
-    const saved = res.saved?.length || 0;
-    setMsg($('#msg'), res.warning || `Added ${saved} song(s) to your library.`, res.warning ? 'warn' : 'ok');
+    for (const f of files) {
+      const row = await addFile(f);
+      await localLib.upsert(row);
+      saved += 1;
+      const pct = Math.round((saved / files.length) * 100);
+      fill.style.width = `${pct}%`;
+      text.textContent = `${pct}%${DOT}${fmtBytes(saved)} of ${files.length}`;
+    }
+    setMsg($('#msg'), `Added ${saved} song(s) to this device.`, 'ok');
     toast(`Added ${saved} song(s)`, 'ok');
     await load();
     setTimeout(() => {
@@ -522,7 +615,7 @@ $('#upload').addEventListener('change', async (e) => {
     }, 1500);
   } catch (err) {
     bar.hidden = false;
-    setMsg($('#msg'), err.message, 'error');
+    setMsg($('#msg'), err?.message || 'Could not add those files.', 'error');
   }
 });
 
