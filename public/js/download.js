@@ -1,4 +1,4 @@
-import { api, $, el, setMsg, toast, fmtDuration, markActiveNav, renderSetupStatus } from './common.js';
+import { api, $, el, setMsg, toast, fmtDuration, markActiveNav, renderSetupStatus, extractId } from './common.js';
 import * as localLib from './localLibrary.js';
 
 markActiveNav();
@@ -176,7 +176,14 @@ function saveUrlFor(url) {
 async function recordHistory(url, title) {
   try {
     const t = title && title.trim() ? title.trim() : url;
-    await localLib.upsert({ url, kind: 'video', title: t });
+    const mediaId = extractId(url);
+    await localLib.upsert({
+      url,
+      kind: 'video',
+      title: t,
+      // mediaId is what the Videos grid reads to draw its thumbnail.
+      ...(mediaId ? { id: `yt_${mediaId}`, mediaId, sourceUrl: url } : {}),
+    });
   } catch (e) {
     console.warn('local library upsert failed', e);
   }

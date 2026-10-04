@@ -499,14 +499,21 @@ app.post('/api/playlist', async (req, res) => {
       thumbnail: data.thumbnails?.[data.thumbnails.length - 1]?.url || null,
       entries: (data.entries || [])
         .filter((e) => e && (e.id || e.url))
-        .map((e, i) => ({
-          index: i + 1,
-          id: e.id || String(e.url).split('v=')[1] || null,
-          title: e.title || e.id || 'Unknown',
-          duration: typeof e.duration === 'number' ? e.duration : null,
-          uploader: e.uploader || e.channel || null,
-          thumbnail: e.thumbnails?.[e.thumbnails.length - 1]?.url || (e.id ? `https://i.ytimg.com/vi/${e.id}/hqdefault.jpg` : null),
-        })),
+        .map((e, i) => {
+          const id = e.id || String(e.url).split('v=')[1] || null;
+          return {
+            index: i + 1,
+            id,
+            // Required, not optional: the client hands this straight to /download
+            // and /save. Without it every track was requested as the literal
+            // string "undefined" and the download failed validation.
+            url: id ? `https://www.youtube.com/watch?v=${id}` : e.url,
+            title: e.title || id || 'Unknown',
+            duration: typeof e.duration === 'number' ? e.duration : null,
+            uploader: e.uploader || e.channel || null,
+            thumbnail: e.thumbnails?.[e.thumbnails.length - 1]?.url || (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null),
+          };
+        }),
     });
   } catch (err) {
     return res.status(422).json({ error: err.message });
@@ -544,6 +551,10 @@ const NO_LIBRARY = { items: [], stats: { total: 0, videos: 0, music: 0, bytes: 0
 const NO_STORE = 'This server keeps no library. Files are streamed straight to your device via /download.';
 
 app.get('/api/library', (req, res) => res.json(NO_LIBRARY));
+// The Playlist page asks for recently used playlists. It is listed here so the
+// request resolves to JSON; without it the SPA fallback answered with
+// index.html and the client tried to parse a web page as a list.
+app.get('/api/playlists', (req, res) => res.json([]));
 app.get('/api/jobs', (req, res) => res.json([]));
 app.delete('/api/jobs/:id', (req, res) => res.json({ cancelled: false }));
 app.get('/api/library/rescan', (req, res) => res.json({ added: 0 }));

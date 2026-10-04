@@ -151,6 +151,61 @@ export function markActiveNav() {
 }
 
 /**
+ * Save a library item to the device again.
+ *
+ * Tracks saved from the Playlist page never touched this server: the media was
+ * piped straight to the phone, so there is no server-side file to serve back.
+ * Those are re-fetched from their original link. Requesting /media/<missing>
+ * instead only ever produced the 409 "this server keeps no library" message,
+ * which reads as a broken app rather than a deliberate design.
+ */
+export function saveToDevice(item) {
+  if (item && item.url && /^https?:\/\//i.test(item.url)) {
+    const params = new URLSearchParams({ url: item.url, kind: item.kind === 'video' ? 'video' : 'audio' });
+    if (item.kind !== 'video') params.set('audioFormat', 'mp3');
+    const token = (() => {
+      try {
+        return localStorage.getItem('vidgrab_token') || '';
+      } catch {
+        return '';
+      }
+    })();
+    if (token) params.set('token', token);
+    const frame = el('iframe', {
+      src: `/download?${params.toString()}`,
+      'aria-hidden': 'true',
+      style: 'position:absolute;width:0;height:0;border:0;visibility:hidden',
+    });
+    document.body.append(frame);
+    setTimeout(() => frame.remove(), 120000);
+    return;
+  }
+
+  const a = document.createElement('a');
+  a.href = `/media/${encodeURI(item.file)}?download=1`;
+  a.download = '';
+  a.click();
+}
+
+/**
+ * Point the user at the file on disk.
+ *
+ * There is nothing to reveal on the server for a device-streamed save, so say
+ * where it actually went rather than surfacing the no-library 409.
+ */
+export async function revealInFolder(item) {
+  if (!item || !item.file) {
+    toast('Saved straight to this device \u2014 look in your Downloads folder.', 'info');
+    return;
+  }
+  try {
+    await api.post('/api/reveal', { id: item.id });
+  } catch {
+    alert(item.file);
+  }
+}
+
+/**
  * Renders the server status line at the bottom of the sidebar.
  *
  * The sidebar is shared and is never replaced by client-side navigation, so

@@ -1,4 +1,4 @@
-﻿import { api, $, el, setMsg, toast, fmtDuration, fmtBytes, fmtWhen, thumbUrl, markActiveNav } from './common.js';
+﻿import { api, $, el, setMsg, toast, fmtDuration, fmtBytes, fmtWhen, thumbUrl, markActiveNav, saveToDevice, revealInFolder } from './common.js';
 import { onCleanup } from './app.js';
 import * as player from './player.js';
 import * as localLib from './localLibrary.js';
@@ -43,7 +43,6 @@ async function load() {
   } catch (err) {
     setMsg($('#msg'), err.message, 'error');
   }
-}
 }
 
 // ---------------------------------------------------------------- library
@@ -155,18 +154,11 @@ async function removeItem(item) {
 }
 
 function saveFile(item) {
-  const a = document.createElement('a');
-  a.href = `/media/${encodeURI(item.file)}?download=1`;
-  a.download = '';
-  a.click();
+  saveToDevice(item);
 }
 
 async function reveal(item) {
-  try {
-    await api.post('/api/reveal', { id: item.id });
-  } catch {
-    alert(item.file);
-  }
+  await revealInFolder(item);
 }
 
 // ---------------------------------------------------------------- sheet
